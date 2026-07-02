@@ -14,6 +14,7 @@ import types
 
 
 FORMATS = ('epub', 'mobi', 'pdf', 'txt')
+CJK_SENTINEL = '这是中文测试'
 MACHO_MAGICS = {
     b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca', b'\xca\xfe\xba\xbf', b'\xbf\xba\xfe\xca',
     b'\xfe\xed\xfa\xce', b'\xce\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xcf\xfa\xed\xfe',
@@ -309,6 +310,7 @@ def create_seed_txt(path):
     with open(path, 'w', encoding='utf-8') as f:
         f.write(
             '# Standalone ebook-convert smoke test\n\n'
+            f'{CJK_SENTINEL}，用于确认 PDF 输出不会丢失非 Latin-1 字符。\n\n'
             'This file is generated during package verification.\n\n'
             'It intentionally contains enough structure to exercise the conversion pipeline.\n'
         )
@@ -445,12 +447,9 @@ def self_test():
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     standalone_builtins = open(os.path.join(root, 'src', 'calibre', 'customize', 'standalone_builtins.py'), encoding='utf-8').read()
-    builtin_fallback = open(os.path.join(root, 'src', 'calibre', 'customize', 'builtins.py'), encoding='utf-8').read()
     standalone_binary = open(os.path.join(root, 'src', 'calibre', 'ebooks', 'conversion', 'standalone_binary.py'), encoding='utf-8').read()
     for name in ('HTMLInput', 'OEBOutput'):
         assert name in standalone_builtins
-    assert "internal_input_formats = {'html'}" in builtin_fallback
-    assert "internal_output_formats = {'oeb'}" in builtin_fallback
     assert 'CALIBRE_STANDALONE_FORBID_QT' in standalone_binary
 
     package_root = create_fake_package_root()
@@ -543,6 +542,8 @@ def smoke_test(converter, work_dir):
             continue
         path = os.path.join(work_dir, f'seed.{fmt}')
         run([converter, sources['txt'], path])
+        if fmt == 'pdf':
+            assert_pdf_contains(converter, path, CJK_SENTINEL)
         sources[fmt] = path
 
     for input_fmt, input_path in sources.items():
@@ -553,11 +554,36 @@ def smoke_test(converter, work_dir):
             run([converter, input_path, output_path])
             if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
                 raise SystemExit(f'Conversion produced no output: {input_fmt} -> {output_fmt}')
+            if output_fmt == 'pdf':
+                assert_pdf_contains(converter, output_path, CJK_SENTINEL)
 
     run_failure([converter, sources['txt'], os.path.join(work_dir, 'unsupported.docx')])
     run_failure([converter, os.path.join(work_dir, 'unsupported.docx'), os.path.join(work_dir, 'unsupported.epub')])
     run_failure([converter, os.path.join(work_dir, 'unsupported.docx'), os.path.join(work_dir, 'unsupported.epub'), '-h'])
     run_failure([converter, '--list-recipes'])
+
+
+def pdftotext_for_converter(converter):
+    package_root = inferred_package_root(converter, converter)
+    if package_root:
+        candidate = os.path.join(package_root, 'bin', 'pdftotext')
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    q = shutil.which('pdftotext')
+    if q:
+        return q
+    raise SystemExit('Cannot validate PDF text: pdftotext not found')
+
+
+def assert_pdf_contains(converter, pdf_path, text):
+    exe = pdftotext_for_converter(converter)
+    ret = subprocess.run((exe, pdf_path, '-'), text=True, capture_output=True)
+    if ret.returncode != 0:
+        raise SystemExit(f'pdftotext failed for {pdf_path}:\n{ret.stderr}')
+    extracted = ret.stdout
+    if text not in extracted:
+        sample = extracted[:500].replace('\n', ' ')
+        raise SystemExit(f'PDF text validation failed for {pdf_path}: missing {text!r}; got {sample!r}')
 
 
 def main(argv=sys.argv):

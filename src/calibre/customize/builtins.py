@@ -1989,41 +1989,6 @@ plugins += [
 
 plugins.extend((OpenRouterAI, GoogleAI, GitHubAI, OllamaAI, LMStudioAI, OpenAICompatible))
 
-
-def restrict_plugins_for_standalone_converter():
-    from calibre.customize.conversion import InputFormatPlugin, OutputFormatPlugin
-    from calibre.customize.profiles import InputProfile, OutputProfile
-
-    def formats_for(plugin):
-        ans = getattr(plugin, 'file_types', ()) or ()
-        if isinstance(ans, str):
-            return {ans}
-        return set(ans)
-
-    supported_formats = {'epub', 'mobi', 'pdf', 'txt'}
-    internal_input_formats = {'html'}
-    internal_output_formats = {'oeb'}
-    ans = []
-    for plugin in plugins:
-        if isinstance(plugin, type):
-            plugin_file_types = formats_for(plugin)
-            plugin_file_type = getattr(plugin, 'file_type', None)
-            if issubclass(plugin, (InputProfile, OutputProfile)):
-                ans.append(plugin)
-            elif issubclass(plugin, InputFormatPlugin) and (supported_formats | internal_input_formats).intersection(plugin_file_types):
-                ans.append(plugin)
-            elif issubclass(plugin, OutputFormatPlugin) and plugin_file_type in supported_formats | internal_output_formats:
-                ans.append(plugin)
-            elif issubclass(plugin, (MetadataReaderPlugin, MetadataWriterPlugin)) and supported_formats.intersection(plugin_file_types):
-                ans.append(plugin)
-            elif issubclass(plugin, FileTypePlugin) and supported_formats.intersection(plugin_file_types):
-                ans.append(plugin)
-    return ans
-
-
-if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
-    plugins = restrict_plugins_for_standalone_converter()
-
 if __name__ == '__main__':
     # Test load speed
     import subprocess

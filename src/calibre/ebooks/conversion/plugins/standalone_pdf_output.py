@@ -20,12 +20,9 @@ PAPER_SIZES = {
 }
 
 
-def pdf_escape(text):
-    return text.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
-
-
-def pdf_text(text):
-    return pdf_escape(text).encode('latin-1', 'replace').decode('latin-1')
+def utf16be_hex(text, bom=False):
+    prefix = 'FEFF' if bom else ''
+    return '<' + prefix + ''.join(f'{ord(x) if ord(x) <= 0xffff else 0xfffd:04X}' for x in text) + '>'
 
 
 def metadata_text(value, default='Unknown'):
@@ -55,6 +52,34 @@ def wrap_words(text, max_chars):
     while ans and not ans[-1]:
         ans.pop()
     return ans or ['']
+
+
+def make_tounicode_cmap(chars):
+    chars = sorted({ord(x) for x in chars if ord(x) <= 0xffff})
+    if not chars:
+        chars = [0x20]
+    chunks = []
+    for i in range(0, len(chars), 100):
+        group = chars[i:i + 100]
+        chunks.append(f'{len(group)} beginbfchar')
+        chunks.extend(f'<{x:04X}> <{x:04X}>' for x in group)
+        chunks.append('endbfchar')
+    body = '\n'.join(chunks)
+    return f'''/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /StandaloneEbookConvert-UTF16 def
+/CMapType 2 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+{body}
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+'''
 
 
 def barename(tag):
@@ -105,7 +130,17 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
 
     catalog_id = add('')  # placeholder
     pages_id = add('')
-    font_id = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+    all_text = '\n'.join(lines) + '\n' + title + '\n' + author
+    tounicode = make_tounicode_cmap(all_text).encode('ascii')
+    tounicode_id = add(f'<< /Length {len(tounicode)} >>\nstream\n{tounicode.decode("ascii")}endstream')
+    cidfont_id = add(
+        '<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light '
+        '/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> >>'
+    )
+    font_id = add(
+        f'<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /Identity-H '
+        f'/DescendantFonts [{cidfont_id} 0 R] /ToUnicode {tounicode_id} 0 R >>'
+    )
     page_ids = []
 
     for page_lines in pages:
@@ -117,10 +152,10 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
                 first = False
             else:
                 commands.append(f'0 -{leading} Td')
-            commands.append(f'({pdf_text(line)}) Tj')
+            commands.append(f'{utf16be_hex(line)} Tj')
         commands.append('ET')
-        stream = '\n'.join(commands).encode('latin-1', 'replace')
-        content_id = add(f'<< /Length {len(stream)} >>\nstream\n{stream.decode("latin-1")}\nendstream')
+        stream = '\n'.join(commands).encode('ascii')
+        content_id = add(f'<< /Length {len(stream)} >>\nstream\n{stream.decode("ascii")}\nendstream')
         page_id = add(
             f'<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 {width} {height}] '
             f'/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>'
@@ -128,7 +163,7 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
         page_ids.append(page_id)
 
     info_id = add(
-        f'<< /Title ({pdf_text(title)}) /Author ({pdf_text(author)}) '
+        f'<< /Title {utf16be_hex(title, bom=True)} /Author {utf16be_hex(author, bom=True)} '
         '/Producer (calibre standalone ebook-convert) >>'
     )
     objects[catalog_id - 1] = f'<< /Type /Catalog /Pages {pages_id} 0 R >>'
@@ -140,7 +175,7 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
     for i, obj in enumerate(objects, 1):
         offsets.append(len(out))
         out += f'{i} 0 obj\n'.encode('ascii')
-        out += obj.encode('latin-1', 'replace')
+        out += obj.encode('ascii')
         out += b'\nendobj\n'
     xref = len(out)
     out += f'xref\n0 {len(objects) + 1}\n'.encode('ascii')

@@ -82,20 +82,24 @@ runtime bundle：
 `src/calibre/customize/ui.py` 在 standalone 环境下加载上述插件列表，并避免导入
 device 插件。
 
-`src/calibre/customize/builtins.py` 增加了 standalone 过滤函数，用于完整构建路径中
-从默认内置插件列表收缩插件面。
+`src/calibre/customize/builtins.py` 不作为 standalone 运行时的插件源。运行时插件集合
+只以 `standalone_builtins.py` 为准，避免和完整 calibre 的默认插件列表产生漂移。
 
 ### PDF 输出
 
 `src/calibre/ebooks/conversion/plugins/standalone_pdf_output.py` 提供一个小型 PDF 输出插件。
 
 它不使用 QtWebEngine，也不追求像素级 HTML/CSS 还原。实现方式是从 OEB spine 中提取
-文本，按页面尺寸和字体大小换行，然后直接写出一个简单 PDF。
+文本，按页面尺寸和字体大小换行，然后直接写出一个简单 PDF。正文以 UTF-16BE hex
+string 写入 Type0/CID PDF 字体，并带 ToUnicode CMap，用于保留中文等非 Latin-1 文本。
 
 这个选择的取舍是：
 
-- 优点：体积小，无 Qt/PyQt 依赖，适合作为转换服务中的基础 PDF 输出。
+- 优点：体积小，无 Qt/PyQt 依赖，中文文本可抽取，适合作为转换服务中的基础 PDF 输出。
 - 代价：复杂排版、图片、CSS 视觉效果不会完整保留。
+
+入口校验假设调用形态和 calibre CLI 一致：输入文件和输出文件位于命令行前两个位置，
+即 `ebook-convert INPUT OUTPUT [options...]`。
 
 ### PDF 输入
 
@@ -242,15 +246,16 @@ python3 /work/setup/standalone_ebook_convert_sample_matrix.py \
 结果：
 
 ```text
-Sample matrix: 23/23 ok
+Sample matrix: 29/29 ok
 ```
 
 说明：
 
-- 两个 EPUB 样本成功转换为 MOBI。
-- 两个 MOBI 样本成功转换为 EPUB。
+- 两个 EPUB 样本成功转换为 MOBI 和 PDF。
+- 两个 MOBI 样本成功转换为 EPUB 和 PDF。
 - 两个 PDF 样本成功转换为 TXT。
-- 两个 TXT 样本成功转换为 EPUB。
+- 两个 TXT 样本成功转换为 EPUB 和 PDF。
+- 所有样本 PDF 输出都经过 `pdftotext` 抽取校验，要求含有足量中文且不是 `?` 占位。
 - 其余格式样本按 standalone 边界被拒绝，返回码为 `2`。
 - 21MB 的大 MOBI 样本超过 240 秒默认超时，因此最终用 900 秒超时验证通过。
 
@@ -259,7 +264,7 @@ Sample matrix: 23/23 ok
 ```text
 dist/calibre-ebook-convert-noqt-linux-arm64.tgz
 size: 66M
-sha256: 9227f56ea3e4651e22d9278f8b541bbe489389d99eb793ebe39edf9517f6b0df
+sha256: ed7f5574ae201fe7a2573f9de3e429a671ed16fe245fd685b4fb7576e2a2d5ab
 ```
 
 容器内保留：
@@ -279,8 +284,8 @@ macOS 本地开发包产物：
 
 ```text
 dist/calibre-ebook-convert-noqt-macos-arm64.tgz
-size: 39,408,288 bytes
-sha256: 6ff0124c3191a2a0adf593ff3872210ed9f67ae5b22b99c30c33bc452f532414
+size: 25.83 MB
+sha256: 3410231395076eba5896f8979726bc6db9d1fc310a3e0848a6fe87a0967999ad
 ```
 
 本地 macOS 验证覆盖：
@@ -298,7 +303,7 @@ sha256: 6ff0124c3191a2a0adf593ff3872210ed9f67ae5b22b99c30c33bc452f532414
 已知限制：
 
 - 只支持 `epub/mobi/pdf/txt` 作为用户可见格式。
-- PDF 输出是轻量文本 PDF，不保证复杂 HTML/CSS/图片排版。
+- PDF 输出是轻量文本 PDF，保留 Unicode/CJK 文本，但不保证复杂 HTML/CSS/图片排版。
 - MOBI 输出中的 SVG rasterizer 被禁用，SVG 不保证转换为位图。
 - Linux 本地验证脚本基于 Debian calibre 8.5 布局，适合作为验证和交付取样；正式 release
   仍应优先走 bypy 集成命令。
