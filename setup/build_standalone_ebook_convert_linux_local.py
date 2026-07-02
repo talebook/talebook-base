@@ -114,6 +114,10 @@ PLUGIN_ALLOWLIST = frozenset({
     'unicode_names.so',
 })
 HELPER_BINS = ('pdftohtml', 'pdfinfo', 'pdftoppm', 'pdftotext')
+CJK_FONT_CANDIDATES = (
+    '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+)
 PYTHON_DYNLOAD_DROP_PREFIXES = ('_test', '_xxtest')
 PYTHON_DYNLOAD_DROP_NAMES = {
     '_ctypes_test',
@@ -330,6 +334,19 @@ def copy_resources(package):
                 shutil.rmtree(item)
             else:
                 item.unlink()
+    copy_standalone_cjk_font(resources)
+
+
+def copy_standalone_cjk_font(resources):
+    fonts = resources / 'fonts'
+    fonts.mkdir(parents=True, exist_ok=True)
+    candidates = [os.environ.get('CALIBRE_STANDALONE_CJK_FONT'), *CJK_FONT_CANDIDATES]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            suffix = Path(candidate).suffix.lower() or '.ttf'
+            shutil.copyfile(candidate, fonts / f'standalone-cjk{suffix}')
+            return
+    raise SystemExit('Missing CJK font for standalone PDF output. Install fonts-wqy-microhei or set CALIBRE_STANDALONE_CJK_FONT.')
 
 
 def copy_python(package, python_exe):

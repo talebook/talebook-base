@@ -42,6 +42,32 @@ def path_format(path):
     return ext.lower()
 
 
+def conversion_paths(args):
+    '''
+    Return the input/output paths for the calibre CLI shape:
+    ebook-convert INPUT OUTPUT [options...]
+
+    A few global options may appear before the paths; once two positional paths
+    are found, later conversion options are intentionally ignored here.
+    '''
+    positional = []
+    after_separator = False
+    for arg in args[1:]:
+        if not after_separator and arg == '--':
+            after_separator = True
+            continue
+        if not after_separator and arg.startswith('-'):
+            continue
+        positional.append(arg)
+    for i, first in enumerate(positional[:-1]):
+        second = positional[i + 1]
+        if path_format(first) and path_format(second):
+            return first, second
+    if len(positional) >= 2:
+        return positional[0], positional[1]
+    return None, None
+
+
 def validate_args(args, log=None):
     log = log or Log()
     if '--version' in args:
@@ -49,10 +75,11 @@ def validate_args(args, log=None):
     if '--list-recipes' in args:
         log.error('Builtin recipe conversion is not included in this standalone binary')
         return False
-    if len(args) < 3:
+    input_path, output_path = conversion_paths(args)
+    if not input_path or not output_path:
         return True
-    input_fmt = path_format(args[1])
-    output_fmt = path_format(args[2])
+    input_fmt = path_format(input_path)
+    output_fmt = path_format(output_path)
     bad = []
     if input_fmt not in SUPPORTED_USER_FORMATS:
         bad.append(('input', input_fmt or 'open ebook/folder'))

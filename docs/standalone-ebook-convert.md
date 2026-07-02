@@ -90,12 +90,13 @@ device 插件。
 `src/calibre/ebooks/conversion/plugins/standalone_pdf_output.py` 提供一个小型 PDF 输出插件。
 
 它不使用 QtWebEngine，也不追求像素级 HTML/CSS 还原。实现方式是从 OEB spine 中提取
-文本，按页面尺寸和字体大小换行，然后直接写出一个简单 PDF。正文以 UTF-16BE hex
-string 写入 Type0/CID PDF 字体，并带 ToUnicode CMap，用于保留中文等非 Latin-1 文本。
+文本，按页面尺寸和字体大小换行，然后直接写出一个简单 PDF。包内携带一个 standalone
+CJK 字体，PDF 以 `CIDFontType2`/`Identity-H` 嵌入该字体，正文以 UTF-16BE hex
+string 写入，并带 ToUnicode CMap，用于显示和抽取中文等非 Latin-1 文本。
 
 这个选择的取舍是：
 
-- 优点：体积小，无 Qt/PyQt 依赖，中文文本可抽取，适合作为转换服务中的基础 PDF 输出。
+- 优点：无 Qt/PyQt 依赖，中文文本可显示和抽取，适合作为转换服务中的基础 PDF 输出。
 - 代价：复杂排版、图片、CSS 视觉效果不会完整保留。
 
 入口校验假设调用形态和 calibre CLI 一致：输入文件和输出文件位于命令行前两个位置，
@@ -170,9 +171,13 @@ Linux 脚本中特别排除了 Debian 中依赖 Qt 的 native 插件，例如 `i
 `setup/standalone_ebook_convert_sample_matrix.py` 用真实样本目录做矩阵验证：
 
 - `epub -> mobi`
+- `epub -> pdf`
 - `mobi -> epub`
+- `mobi -> pdf`
 - `pdf -> txt`
 - `txt -> epub`
+- `txt -> pdf`
+- 所有 PDF 输出都会用 `pdftotext` 抽取正文，校验中文字符数量和 `?` 占位比例。
 - 其它格式预期被 standalone 入口拒绝，返回码 `2`，且不生成输出。
 
 ## Debian 容器验证记录
@@ -263,8 +268,8 @@ Sample matrix: 29/29 ok
 
 ```text
 dist/calibre-ebook-convert-noqt-linux-arm64.tgz
-size: 66M
-sha256: ed7f5574ae201fe7a2573f9de3e429a671ed16fe245fd685b4fb7576e2a2d5ab
+size: 68.48 MB
+sha256: 1989d4c6bb0ebdac7256f7d855418029780e0fa34194d8e3b42c895df98dc4e4
 ```
 
 容器内保留：
@@ -284,8 +289,8 @@ macOS 本地开发包产物：
 
 ```text
 dist/calibre-ebook-convert-noqt-macos-arm64.tgz
-size: 25.83 MB
-sha256: 3410231395076eba5896f8979726bc6db9d1fc310a3e0848a6fe87a0967999ad
+size: 37.93 MB
+sha256: 6c252fdcaa9ad6ced6b06d938f5577704cd42ffb2eaa2a524e5fc4b4f3d0bd40
 ```
 
 本地 macOS 验证覆盖：
@@ -304,7 +309,13 @@ sha256: 3410231395076eba5896f8979726bc6db9d1fc310a3e0848a6fe87a0967999ad
 
 - 只支持 `epub/mobi/pdf/txt` 作为用户可见格式。
 - PDF 输出是轻量文本 PDF，保留 Unicode/CJK 文本，但不保证复杂 HTML/CSS/图片排版。
+  当前实现为每个 PDF 嵌入完整 standalone CJK 字体，因此 PDF 输出文件会比纯文本内容大。
 - MOBI 输出中的 SVG rasterizer 被禁用，SVG 不保证转换为位图。
+- 通过 MOBI 中转做 `epub -> epub` 回环不能视为无损：嵌入字体、CSS 背景装饰图、
+  透明度和布局都可能丢失。这是 MOBI 中间格式的固有限制，不是 standalone 特有问题。
+- standalone 额外缺少 Qt SVG rasterizer；正文或封面里的 SVG 不会被栅格化为位图。
+- 大书转换耗时明显。28MB、1415 章样本的 `epub -> mobi -> epub` 回环实测接近
+  24 分钟，其中 `mobi -> epub` 的章节切分阶段最慢。
 - Linux 本地验证脚本基于 Debian calibre 8.5 布局，适合作为验证和交付取样；正式 release
   仍应优先走 bypy 集成命令。
 - 产物没有提交进 git；仓库只保存构建脚本、代码和验证工具。

@@ -10,6 +10,8 @@ pixel-perfect HTML/CSS rendering.
 
 import os
 import re
+import struct
+import sys
 
 from calibre.customize.conversion import OptionRecommendation, OutputFormatPlugin
 
@@ -18,6 +20,7 @@ PAPER_SIZES = {
     'letter': (612, 792),
     'a4': (595, 842),
 }
+STANDALONE_CJK_FONT_NAMES = ('standalone-cjk.ttf', 'standalone-cjk.ttc', 'wqy-microhei.ttc', 'Arial Unicode.ttf')
 
 
 def utf16be_hex(text, bom=False):
@@ -82,6 +85,207 @@ end
 '''
 
 
+def checksum(data):
+    extra = (-len(data)) % 4
+    if extra:
+        data += b'\0' * extra
+    return sum(struct.unpack(f'>{len(data) // 4}I', data)) & 0xffffffff
+
+
+def rebuild_ttf_from_ttc(data, font_offset):
+    sfnt_version, num_tables, search_range, entry_selector, range_shift = struct.unpack_from('>IHHHH', data, font_offset)
+    records = []
+    pos = font_offset + 12
+    for _ in range(num_tables):
+        tag, _check, offset, length = struct.unpack_from('>4sIII', data, pos)
+        records.append((tag, data[offset:offset + length]))
+        pos += 16
+    out = bytearray(struct.pack('>IHHHH', sfnt_version, num_tables, search_range, entry_selector, range_shift))
+    data_offset = 12 + (16 * num_tables)
+    table_data = bytearray()
+    record_positions = []
+    for tag, raw in records:
+        aligned = (-len(table_data)) % 4
+        if aligned:
+            table_data.extend(b'\0' * aligned)
+        offset = data_offset + len(table_data)
+        q = bytearray(raw)
+        if tag == b'head' and len(q) >= 12:
+            q[8:12] = b'\0\0\0\0'
+        record_positions.append((len(out), tag, offset, len(raw), bytes(q)))
+        out.extend(b'\0' * 16)
+        table_data.extend(q)
+    out.extend(table_data)
+    for record_pos, tag, offset, length, raw in record_positions:
+        struct.pack_into('>4sIII', out, record_pos, tag, checksum(raw), offset, length)
+    total = checksum(bytes(out))
+    adjustment = (0xB1B0AFBA - total) & 0xffffffff
+    for _record_pos, tag, offset, length, _raw in record_positions:
+        if tag == b'head' and length >= 12:
+            struct.pack_into('>I', out, offset + 8, adjustment)
+            break
+    return bytes(out)
+
+
+class EmbeddedFont:
+
+    def __init__(self, path):
+        raw = open(path, 'rb').read()
+        self.path = path
+        if raw[:4] == b'ttcf':
+            font_offset = struct.unpack_from('>I', raw, 12)[0]
+            raw = rebuild_ttf_from_ttc(raw, font_offset)
+        self.raw = raw
+        self.tables = {}
+        _version, num_tables, _search_range, _entry_selector, _range_shift = struct.unpack_from('>IHHHH', raw, 0)
+        pos = 12
+        for _ in range(num_tables):
+            tag, _check, offset, length = struct.unpack_from('>4sIII', raw, pos)
+            self.tables[tag.decode('ascii')] = (offset, length)
+            pos += 16
+        self.units_per_em = self.u16('head', 18)
+        self.x_min = self.i16('head', 36)
+        self.y_min = self.i16('head', 38)
+        self.x_max = self.i16('head', 40)
+        self.y_max = self.i16('head', 42)
+        self.ascent = self.i16('hhea', 4)
+        self.descent = self.i16('hhea', 6)
+        self.number_of_hmetrics = self.u16('hhea', 34)
+        self.advance_widths = self.read_advance_widths()
+        self.cmap = self.read_cmap()
+
+    def table(self, name):
+        offset, length = self.tables[name]
+        return self.raw[offset:offset + length]
+
+    def u16(self, table, offset):
+        base, _length = self.tables[table]
+        return struct.unpack_from('>H', self.raw, base + offset)[0]
+
+    def i16(self, table, offset):
+        base, _length = self.tables[table]
+        return struct.unpack_from('>h', self.raw, base + offset)[0]
+
+    def scale(self, value):
+        return int(round((value * 1000) / (self.units_per_em or 1000)))
+
+    def read_advance_widths(self):
+        data = self.table('hmtx')
+        ans = []
+        for i in range(self.number_of_hmetrics):
+            ans.append(struct.unpack_from('>H', data, i * 4)[0])
+        return ans or [self.units_per_em]
+
+    def width_for_gid(self, gid):
+        if gid < len(self.advance_widths):
+            width = self.advance_widths[gid]
+        else:
+            width = self.advance_widths[-1]
+        return self.scale(width)
+
+    def read_cmap(self):
+        data = self.table('cmap')
+        _version, num_tables = struct.unpack_from('>HH', data, 0)
+        records = []
+        for i in range(num_tables):
+            platform, encoding, offset = struct.unpack_from('>HHI', data, 4 + (i * 8))
+            fmt = struct.unpack_from('>H', data, offset)[0]
+            records.append((fmt, platform, encoding, offset))
+        for fmt, platform, encoding, offset in sorted(records, key=lambda x: (x[0] != 12, x[1] != 3, x[2] not in {10, 1, 0})):
+            if fmt == 12:
+                return self.read_cmap_format12(data, offset)
+            if fmt == 4:
+                return self.read_cmap_format4(data, offset)
+        return {}
+
+    def read_cmap_format12(self, data, offset):
+        _fmt, _reserved, _length, _language, groups = struct.unpack_from('>HHIII', data, offset)
+        ans = {}
+        pos = offset + 16
+        for _ in range(groups):
+            start, end, start_gid = struct.unpack_from('>III', data, pos)
+            pos += 12
+            for cp in range(start, min(end, 0xffff) + 1):
+                ans[cp] = start_gid + cp - start
+        return ans
+
+    def read_cmap_format4(self, data, offset):
+        _fmt, length, _language, seg_count_x2 = struct.unpack_from('>HHHH', data, offset)
+        seg_count = seg_count_x2 // 2
+        end_codes = struct.unpack_from(f'>{seg_count}H', data, offset + 14)
+        start_pos = offset + 16 + (2 * seg_count)
+        start_codes = struct.unpack_from(f'>{seg_count}H', data, start_pos)
+        delta_pos = start_pos + (2 * seg_count)
+        id_deltas = struct.unpack_from(f'>{seg_count}h', data, delta_pos)
+        range_pos = delta_pos + (2 * seg_count)
+        id_range_offsets = struct.unpack_from(f'>{seg_count}H', data, range_pos)
+        ans = {}
+        table_end = offset + length
+        for i, (start, end, delta, roff) in enumerate(zip(start_codes, end_codes, id_deltas, id_range_offsets)):
+            if start == 0xffff and end == 0xffff:
+                continue
+            for cp in range(start, min(end, 0xffff) + 1):
+                if roff == 0:
+                    gid = (cp + delta) & 0xffff
+                else:
+                    glyph_offset = range_pos + (2 * i) + roff + (2 * (cp - start))
+                    if glyph_offset + 2 > table_end:
+                        gid = 0
+                    else:
+                        gid = struct.unpack_from('>H', data, glyph_offset)[0]
+                        if gid:
+                            gid = (gid + delta) & 0xffff
+                if gid:
+                    ans[cp] = gid
+        return ans
+
+    def glyph_id(self, cp):
+        return self.cmap.get(cp, 0)
+
+
+def find_cjk_font():
+    paths = []
+    env_path = os.environ.get('CALIBRE_STANDALONE_CJK_FONT')
+    if env_path:
+        paths.append(env_path)
+    resources = getattr(sys, 'resources_location', None)
+    if resources:
+        for name in STANDALONE_CJK_FONT_NAMES:
+            paths.append(os.path.join(resources, 'fonts', name))
+    paths.extend((
+        '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+        '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+        '/System/Library/Fonts/STHeiti Light.ttc',
+    ))
+    for path in paths:
+        if path and os.path.exists(path):
+            return path
+    raise RuntimeError('No standalone CJK font found for PDF output')
+
+
+def pdf_stream(data, attrs=''):
+    if isinstance(data, str):
+        data = data.encode('ascii')
+    attrs = (' ' + attrs.strip()) if attrs.strip() else ''
+    return b'<< /Length %d%s >>\nstream\n' % (len(data), attrs.encode('ascii')) + data + b'\nendstream'
+
+
+def make_cid_to_gid_map(font, chars):
+    chars = sorted({ord(x) for x in chars if ord(x) <= 0xffff})
+    max_cid = max(chars or [0])
+    raw = bytearray((max_cid + 1) * 2)
+    for cid in chars:
+        struct.pack_into('>H', raw, cid * 2, font.glyph_id(cid))
+    return bytes(raw)
+
+
+def make_widths(font, chars):
+    pairs = []
+    for cid in sorted({ord(x) for x in chars if ord(x) <= 0xffff}):
+        pairs.append(f'{cid} [{font.width_for_gid(font.glyph_id(cid))}]')
+    return '[' + ' '.join(pairs) + ']'
+
+
 def barename(tag):
     if not isinstance(tag, str):
         return ''
@@ -132,13 +336,23 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
     pages_id = add('')
     all_text = '\n'.join(lines) + '\n' + title + '\n' + author
     tounicode = make_tounicode_cmap(all_text).encode('ascii')
-    tounicode_id = add(f'<< /Length {len(tounicode)} >>\nstream\n{tounicode.decode("ascii")}endstream')
+    tounicode_id = add(pdf_stream(tounicode))
+    font = EmbeddedFont(find_cjk_font())
+    font_file_id = add(pdf_stream(font.raw, f'/Length1 {len(font.raw)}'))
+    cid_to_gid_id = add(pdf_stream(make_cid_to_gid_map(font, all_text)))
+    bbox = ' '.join(str(font.scale(x)) for x in (font.x_min, font.y_min, font.x_max, font.y_max))
+    descriptor_id = add(
+        f'<< /Type /FontDescriptor /FontName /StandaloneCJK /Flags 4 /FontBBox [{bbox}] '
+        f'/ItalicAngle 0 /Ascent {font.scale(font.ascent)} /Descent {font.scale(font.descent)} '
+        f'/CapHeight {font.scale(font.ascent)} /StemV 80 /FontFile2 {font_file_id} 0 R >>'
+    )
     cidfont_id = add(
-        '<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light '
-        '/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> >>'
+        f'<< /Type /Font /Subtype /CIDFontType2 /BaseFont /StandaloneCJK '
+        f'/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> '
+        f'/FontDescriptor {descriptor_id} 0 R /CIDToGIDMap {cid_to_gid_id} 0 R /W {make_widths(font, all_text)} >>'
     )
     font_id = add(
-        f'<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /Identity-H '
+        f'<< /Type /Font /Subtype /Type0 /BaseFont /StandaloneCJK /Encoding /Identity-H '
         f'/DescendantFonts [{cidfont_id} 0 R] /ToUnicode {tounicode_id} 0 R >>'
     )
     page_ids = []
@@ -155,7 +369,7 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
             commands.append(f'{utf16be_hex(line)} Tj')
         commands.append('ET')
         stream = '\n'.join(commands).encode('ascii')
-        content_id = add(f'<< /Length {len(stream)} >>\nstream\n{stream.decode("ascii")}\nendstream')
+        content_id = add(pdf_stream(stream))
         page_id = add(
             f'<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 {width} {height}] '
             f'/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>'
@@ -175,7 +389,7 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
     for i, obj in enumerate(objects, 1):
         offsets.append(len(out))
         out += f'{i} 0 obj\n'.encode('ascii')
-        out += obj.encode('ascii')
+        out += obj if isinstance(obj, bytes) else obj.encode('ascii')
         out += b'\nendobj\n'
     xref = len(out)
     out += f'xref\n0 {len(objects) + 1}\n'.encode('ascii')

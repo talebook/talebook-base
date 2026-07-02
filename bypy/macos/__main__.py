@@ -52,6 +52,11 @@ STANDALONE_RESOURCE_KEEP = frozenset({
     'pdf-preprint.js',
     'templates',
 })
+STANDALONE_CJK_FONT_CANDIDATES = (
+    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+    '/System/Library/Fonts/STHeiti Light.ttc',
+    '/System/Library/Fonts/STHeiti Medium.ttc',
+)
 STANDALONE_QT_NAMED_PYTHON_FILES = {
     ('PIL', 'ImageQt.py'),
 }
@@ -240,6 +245,20 @@ def prune_standalone_resources(resources):
                 os.remove(path)
 
 
+def copy_standalone_cjk_font(resources):
+    if MACOS_BINARY_FLAVOR != 'ebook-convert':
+        return
+    fonts = join(resources, 'fonts')
+    os.makedirs(fonts, exist_ok=True)
+    candidates = [os.environ.get('CALIBRE_STANDALONE_CJK_FONT'), *STANDALONE_CJK_FONT_CANDIDATES]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            _base, ext = os.path.splitext(candidate)
+            shutil.copyfile(candidate, join(fonts, 'standalone-cjk' + (ext or '.ttf')))
+            return
+    raise SystemExit('Missing CJK font for standalone PDF output. Set CALIBRE_STANDALONE_CJK_FONT to a CJK TrueType/TTC font.')
+
+
 def filter_standalone_calibre_extensions(dest, ext_map):
     if MACOS_BINARY_FLAVOR != 'ebook-convert':
         return ext_map
@@ -345,6 +364,7 @@ class Freeze:
         resources = join(self.resources_dir, 'resources')
         shutil.copytree('resources', resources)
         prune_standalone_resources(resources)
+        copy_standalone_cjk_font(resources)
 
     @flush
     def strip_files(self):

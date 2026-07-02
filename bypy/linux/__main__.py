@@ -48,6 +48,10 @@ STANDALONE_RESOURCE_KEEP = frozenset({
     'pdf-preprint.js',
     'templates',
 })
+STANDALONE_CJK_FONT_CANDIDATES = (
+    '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+)
 STANDALONE_QT_NAMED_PYTHON_FILES = {
     ('PIL', 'ImageQt.py'),
 }
@@ -155,6 +159,20 @@ def prune_standalone_resources(resources):
                 os.remove(path)
 
 
+def copy_standalone_cjk_font(resources):
+    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+        return
+    fonts = j(resources, 'fonts')
+    os.makedirs(fonts, exist_ok=True)
+    candidates = [os.environ.get('CALIBRE_STANDALONE_CJK_FONT'), *STANDALONE_CJK_FONT_CANDIDATES]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            _base, ext = os.path.splitext(candidate)
+            shutil.copyfile(candidate, j(fonts, 'standalone-cjk' + (ext or '.ttf')))
+            return
+    raise SystemExit('Missing CJK font for standalone PDF output. Install fonts-wqy-microhei or set CALIBRE_STANDALONE_CJK_FONT.')
+
+
 def import_site_packages(srcdir, dest):
     if not os.path.exists(dest):
         os.mkdir(dest)
@@ -257,6 +275,7 @@ def copy_python(env, ext_dir):
             shutil.copy2(c, j(dest, x))
     shutil.copytree(j(env.src_root, 'resources'), j(env.base, 'resources'))
     prune_standalone_resources(j(env.base, 'resources'))
+    copy_standalone_cjk_font(j(env.base, 'resources'))
     if LINUX_BINARY_FLAVOR != 'ebook-convert':
         for pak in glob.glob(j(QT_PREFIX, 'resources', '*')):
             shutil.copy2(pak, j(env.base, 'resources'))

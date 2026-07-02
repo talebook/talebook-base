@@ -113,6 +113,12 @@ PLUGIN_ALLOWLIST = frozenset({
     'unicode_names.so',
 })
 HELPER_BINS = ('pdftohtml', 'pdfinfo', 'pdftoppm', 'pdftotext')
+CJK_FONT_CANDIDATES = (
+    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+    '/System/Library/Fonts/STHeiti Light.ttc',
+    '/System/Library/Fonts/STHeiti Medium.ttc',
+    '/opt/homebrew/share/fonts/wqy-microhei.ttc',
+)
 PYTHON_DYNLOAD_DROP_PREFIXES = ('_test', '_xxtest')
 PYTHON_DYNLOAD_DROP_NAMES = {
     '_ctypes_test',
@@ -199,6 +205,7 @@ def copy_sources(dest):
         shutil.copy2(ROOT / 'src' / 'calibre' / 'db' / name, db_dest / name)
     copytree(ROOT / 'resources', dest / 'resources', ignore=ignore_pycache)
     prune_resources(dest / 'resources')
+    copy_standalone_cjk_font(dest / 'resources')
 
 
 def prune_resources(resources):
@@ -208,6 +215,18 @@ def prune_resources(resources):
                 shutil.rmtree(item)
             else:
                 item.unlink()
+
+
+def copy_standalone_cjk_font(resources):
+    fonts = resources / 'fonts'
+    fonts.mkdir(parents=True, exist_ok=True)
+    candidates = [os.environ.get('CALIBRE_STANDALONE_CJK_FONT'), *CJK_FONT_CANDIDATES]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            suffix = Path(candidate).suffix.lower() or '.ttf'
+            shutil.copyfile(candidate, fonts / f'standalone-cjk{suffix}')
+            return
+    raise SystemExit('Missing CJK font for standalone PDF output. Set CALIBRE_STANDALONE_CJK_FONT to a CJK TrueType/TTC font.')
 
 
 def parse_otool(path):

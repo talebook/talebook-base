@@ -203,6 +203,7 @@ def validate_package_root(package_root):
     for path in (os.path.join(package_root, 'ebook-convert'), os.path.join(package_root, 'bin', 'ebook-convert')):
         if not os.path.isfile(path) or not os.access(path, os.X_OK):
             raise SystemExit(f'Missing executable: {path}')
+    validate_standalone_cjk_font(os.path.join(package_root, 'resources'))
 
 
 def validate_macos_app(app_path):
@@ -226,6 +227,13 @@ def validate_macos_app(app_path):
             plist = plistlib.load(f)
         if plist.get('CFBundleExecutable') != 'ebook-convert':
             raise SystemExit(f'Unexpected CFBundleExecutable in standalone macOS app: {plist.get("CFBundleExecutable")!r}')
+    validate_standalone_cjk_font(os.path.join(contents, 'Resources', 'resources'))
+
+
+def validate_standalone_cjk_font(resources):
+    fonts = os.path.join(resources, 'fonts')
+    if not any(os.path.isfile(os.path.join(fonts, f'standalone-cjk{x}')) for x in ('.ttf', '.ttc')):
+        raise SystemExit(f'Missing standalone CJK font in package resources: {fonts}')
 
 
 def normalized_member_names(members):
@@ -358,6 +366,8 @@ def create_fake_package_root():
     tdir = tempfile.mkdtemp(prefix='standalone-ebook-convert-package-')
     for name in ('bin', 'lib', 'resources'):
         os.mkdir(os.path.join(tdir, name))
+    os.makedirs(os.path.join(tdir, 'resources', 'fonts'))
+    open(os.path.join(tdir, 'resources', 'fonts', 'standalone-cjk.ttf'), 'wb').close()
     write_executable(os.path.join(tdir, 'ebook-convert'))
     write_executable(os.path.join(tdir, 'bin', 'ebook-convert'))
     write_executable(os.path.join(tdir, 'bin', 'pdftohtml'))
@@ -369,6 +379,8 @@ def create_fake_macos_app():
     contents = os.path.join(tdir, 'ebook-convert.app', 'Contents')
     macos = os.path.join(contents, 'MacOS')
     os.makedirs(macos)
+    os.makedirs(os.path.join(contents, 'Resources', 'resources', 'fonts'))
+    open(os.path.join(contents, 'Resources', 'resources', 'fonts', 'standalone-cjk.ttf'), 'wb').close()
     write_executable(os.path.join(macos, 'ebook-convert'))
     with open(os.path.join(contents, 'Info.plist'), 'wb') as f:
         plistlib.dump({'CFBundleExecutable': 'ebook-convert'}, f)
@@ -413,6 +425,7 @@ def self_test():
     assert mod.path_format('book.epub') == 'epub'
     assert mod.path_format('.mobi') == 'mobi'
     assert mod.validate_args(['ebook-convert', 'a.epub', 'b.pdf'])
+    assert mod.validate_args(['ebook-convert', '--debug-pipeline', 'debug', 'a.epub', 'b.pdf'])
     assert mod.validate_args(['ebook-convert', 'a.epub', 'b.pdf', '-h'])
     assert mod.validate_args(['ebook-convert', '-h'])
     assert mod.validate_args(['ebook-convert', 'a.docx', 'b.epub', '--version'])
