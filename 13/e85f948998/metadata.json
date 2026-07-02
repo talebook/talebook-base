@@ -1,0 +1,28 @@
+{
+  "checkpoint_id": "13e85f948998",
+  "strategy": "manual-commit",
+  "branch": "only-ebook-convert",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/standalone-ebook-convert.md",
+    "setup/standalone_ebook_convert_sample_matrix.py",
+    "setup/standalone_ebook_convert_smoke.py",
+    "src/calibre/customize/builtins.py",
+    "src/calibre/ebooks/conversion/plugins/standalone_pdf_output.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/13/e85f948998/0/metadata.json",
+      "prompt": "/13/e85f948998/0/prompt.txt",
+      "transcript": "/13/e85f948998/0/full.jsonl",
+      "content_hash": "/13/e85f948998/0/content_hash.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 16548,
+    "cache_creation_tokens": 96802,
+    "cache_read_tokens": 3027611,
+    "output_tokens": 30333,
+    "api_call_count": 37
+  }
+}

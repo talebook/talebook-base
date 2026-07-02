@@ -1,0 +1,17 @@
+你看下文档 docs/standalone-ebook-convert.md 了解一下背景，然后作为一个QA的角色审查一下方案、变更、产出、实际功能等
+
+---
+
+这些问题你都要实际测试验证一下，不要完全相信文档
+
+---
+
+在 chats/ 目录里面创建md文档记录本轮审查测试的结果。我让其他AI修改代码。 PS：你看过其他格式下的书籍内容都正常吧，比如中文
+
+---
+
+/Users/bytedance/github/calibre/samples/诡秘之主.epub 这本书有特殊排版和图片，你尝试 epub->mobi->epub2 ，然后对比epub vs epub2看看丢失了什么
+
+---
+
+/Users/bytedance/github/calibre/samples/诡秘之主.epub 这本书有特殊排版和图片，你尝试 epub->mobi->epub2 ，然后对比epub vs epub2看看丢失了什么， 期望是能够无损转换
