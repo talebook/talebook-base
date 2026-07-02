@@ -25,12 +25,16 @@ __all__ = [
     'iso_data',
     'liberation_fonts',
     'linux',
+    'linux_ebook_convert',
     'linux64',
+    'linux_ebook_convert64',
+    'linux_ebook_convertarm64',
     'linuxarm64',
     'man_pages',
     'manual',
     'mathjax',
     'osx',
+    'osx_ebook_convert',
     'piper_voices',
     'pot',
     'publish',
@@ -61,11 +65,15 @@ __all__ = [
     'xwin',
 ]
 
-from setup.installers import OSX, BuildDep, ExportPackages, ExtDev, Linux, Linux64, LinuxArm64, Win, Win64
+from setup.installers import OSX, OSX_EbookConvert, BuildDep, ExportPackages, ExtDev, Linux, Linux64, LinuxArm64, LinuxEbookConvert, LinuxEbookConvert64, LinuxEbookConvertArm64, Win, Win64
 
 linux, linux64, linuxarm64 = Linux(), Linux64(), LinuxArm64()
+linux_ebook_convert = LinuxEbookConvert()
+linux_ebook_convert64 = LinuxEbookConvert64()
+linux_ebook_convertarm64 = LinuxEbookConvertArm64()
 win, win64 = Win(), Win64()
 osx = OSX()
+osx_ebook_convert = OSX_EbookConvert()
 extdev = ExtDev()
 build_dep = BuildDep()
 export_packages = ExportPackages()

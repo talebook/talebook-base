@@ -55,6 +55,16 @@ def get_dist(base, which, bitness):
     return dist
 
 
+def check_macos_vm_config(bypy):
+    vm_spec = os.path.join(bypy, 'b', 'macos', 'vm', 'machine-spec')
+    if not os.path.exists(vm_spec):
+        raise SystemExit(
+            'Cannot find the macOS bypy VM configuration at: ' + vm_spec + '\n'
+            'Create the macOS VM described in the bypy virtual_machine/README.rst '
+            'before running macOS installer builds.'
+        )
+
+
 def shutdown_allowed(which, bitness):
     # The ARM64 VM is extremely flakey often booting up to a non-functional
     # state so don't shut it down as it seems to be more stable once boot-up is
@@ -78,11 +88,17 @@ def build_only(which, bitness, spec, shutdown=False):
     return dist
 
 
-def build_single(which='windows', bitness='64', shutdown=True, sign_installers=True, notarize=True, compression_level='9', dont_strip=False):
+def build_single(which='windows', bitness='64', shutdown=True, sign_installers=True, notarize=True, compression_level='9', dont_strip=False, binary_flavor=''):
     base, bypy = get_paths()
+    if which == 'macos':
+        check_macos_vm_config(bypy)
     exe = get_exe()
     cmd = get_cmd(exe, bypy, which, bitness, sign_installers, notarize, compression_level=compression_level, dont_strip=dont_strip)
-    ret = subprocess.Popen(cmd).wait()
+    env = os.environ.copy()
+    if binary_flavor:
+        env['CALIBRE_LINUX_BINARY_FLAVOR'] = binary_flavor
+        env['CALIBRE_MACOS_BINARY_FLAVOR'] = binary_flavor
+    ret = subprocess.Popen(cmd, env=env).wait()
     if ret != 0:
         raise SystemExit(ret)
     dist = get_dist(base, which, bitness)
@@ -181,6 +197,54 @@ class LinuxArm64(BuildInstaller):
     OS = 'linux'
     BITNESS = 'arm64'
     description = 'Build the 64-bit ARM Linux calibre installer'
+
+
+class LinuxEbookConvert64(BuildInstaller):
+    OS = 'linux'
+    BITNESS = '64'
+    description = 'Build the 64-bit standalone Linux ebook-convert binary package'
+
+    def run(self, opts):
+        build_single(
+            self.OS, self.BITNESS, not opts.dont_shutdown,
+            not opts.dont_sign, not opts.dont_notarize,
+            compression_level=opts.compression_level, dont_strip=opts.dont_strip,
+            binary_flavor='ebook-convert'
+        )
+
+
+class LinuxEbookConvertArm64(LinuxEbookConvert64):
+    BITNESS = 'arm64'
+    description = 'Build the 64-bit ARM standalone Linux ebook-convert binary package'
+
+
+class LinuxEbookConvert(BuildInstallers):
+    OS = 'linux'
+    ALL_ARCHES = '64', 'arm64'
+    description = 'Build standalone Linux ebook-convert binary packages'
+
+    def run(self, opts):
+        for bitness in self.ALL_ARCHES:
+            shutdown = bitness is self.ALL_ARCHES[-1] and not opts.dont_shutdown
+            build_single(
+                self.OS, bitness, shutdown,
+                not opts.dont_sign, not opts.dont_notarize,
+                compression_level=opts.compression_level, dont_strip=opts.dont_strip,
+                binary_flavor='ebook-convert'
+            )
+
+
+class OSX_EbookConvert(BuildInstaller):
+    OS = 'macos'
+    description = 'Build the standalone macOS ebook-convert binary package'
+
+    def run(self, opts):
+        build_single(
+            self.OS, self.BITNESS, not opts.dont_shutdown,
+            not opts.dont_sign, not opts.dont_notarize,
+            compression_level=opts.compression_level, dont_strip=opts.dont_strip,
+            binary_flavor='ebook-convert'
+        )
 
 
 class Win64(BuildInstaller):

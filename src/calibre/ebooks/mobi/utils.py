@@ -6,6 +6,7 @@ __copyright__ = '2011, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 import os
+import os.path
 import string
 import struct
 from collections import OrderedDict
@@ -15,7 +16,10 @@ from io import BytesIO
 from tinycss.color3 import parse_color_string
 
 from calibre.ebooks import normalize
-from calibre.utils.img import image_from_data, image_to_data, png_data_to_gif_data, resize_image, save_cover_data_to, scale_image
+if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
+    from calibre.utils.standalone_img import image_from_data, image_to_data, png_data_to_gif_data, resize_image, save_cover_data_to, scale_image
+else:
+    from calibre.utils.img import image_from_data, image_to_data, png_data_to_gif_data, resize_image, save_cover_data_to, scale_image
 from calibre.utils.imghdr import what
 from polyglot.builtins import as_bytes
 

@@ -8,6 +8,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import time
 from functools import partial
@@ -28,22 +29,55 @@ calibre_constants = iv['calibre_constants']
 QT_DLLS, QT_PLUGINS, PYQT_MODULES = iv['QT_DLLS'], iv['QT_PLUGINS'], iv['PYQT_MODULES']
 qt_get_dll_path = partial(get_dll_path, loc=os.path.join(QT_PREFIX, 'lib'))
 ffmpeg_get_dll_path = partial(get_dll_path, loc=FFMPEG_PREFIX)
+LINUX_BINARY_FLAVOR = os.environ.get('CALIBRE_LINUX_BINARY_FLAVOR', '')
+STANDALONE_NO_QT_PACKAGES = {'PyQt6', 'PyQt6_sip', 'PyQt6_WebEngine', 'qt'}
+STANDALONE_FORBIDDEN_QT_ARTIFACTS = {
+    'qt', 'PyQt6', 'PyQt6_sip', 'PyQt6_WebEngine', 'QtWebEngineProcess',
+    'qtwebengine_locales',
+}
+STANDALONE_CALIBRE_DROP_DIRS = {
+    'ai', 'devices', 'gui2', 'headless', 'scraper', 'srv', 'web',
+}
+STANDALONE_RESOURCE_KEEP = frozenset({
+    'calibre-ebook-root-CA.crt',
+    'common-english-words.txt',
+    'default_tweaks.py',
+    'fonts',
+    'localization',
+    'mime.types',
+    'pdf-preprint.js',
+    'templates',
+})
+STANDALONE_QT_NAMED_PYTHON_FILES = {
+    ('PIL', 'ImageQt.py'),
+}
+STANDALONE_CALIBRE_EXTENSIONS = {
+    'cPalmdoc', 'fast_css_transform', 'fast_html_entities', 'freetype',
+    'html_as_json', 'hyphen', 'icu', 'matcher', 'podofo', 'speedup',
+    'translator', 'uchardet', 'unicode_names',
+}
+STANDALONE_HELPER_BINS = ('pdftohtml', 'pdfinfo', 'pdftoppm', 'pdftotext')
+STANDALONE_LIBRARY_NAMES = (
+    'expat ffi z lzma openjp2 poppler iconv xml2 xslt jpeg png16'
+    ' webp webpmux webpdemux sharpyuv exslt hyphen icudata icui18n icuuc icuio'
+    ' uchardet graphite2 gcrypt gpg-error brotlicommon brotlidec brotlienc zstd'
+    ' podofo ssl crypto deflate tiff gobject-2.0 glib-2.0 gthread-2.0'
+    ' gmodule-2.0 gio-2.0 lcms2'
+).split()
 
 
 def binary_includes():
     ffmpeg_dlls = tuple(os.path.basename(x).partition('.')[0][3:] for x in glob.glob(os.path.join(FFMPEG_PREFIX, '*.so')))
-    return [
-        j(PREFIX, 'bin', x) for x in ('pdftohtml', 'pdfinfo', 'pdftoppm', 'pdftotext', 'optipng', 'cwebp', 'JxrDecApp')] + [
-
-        j(PREFIX, 'private', 'mozjpeg', 'bin', x) for x in ('jpegtran', 'cjpeg')] + [
-        ] + list(map(
-            get_dll_path,
-            ('usb-1.0 mtp expat ffi z lzma openjp2 poppler dbus-1 iconv xml2 xslt jpeg png16'
-             ' webp webpmux webpdemux sharpyuv exslt ncursesw readline chm hunspell-1.7 hyphen'
-             ' icudata icui18n icuuc icuio stemmer gcrypt gpg-error uchardet graphite2 espeak-ng'
-             ' brotlicommon brotlidec brotlienc zstd podofo ssl crypto deflate tiff onnxruntime'
-             ' gobject-2.0 glib-2.0 gthread-2.0 gmodule-2.0 gio-2.0 dbus-glib-1 lcms2').split()
-        )) + [
+    ans = [
+        j(PREFIX, 'bin', x) for x in STANDALONE_HELPER_BINS] + [
+        get_dll_path(x) for x in STANDALONE_LIBRARY_NAMES] + [
+        get_dll_path('bz2', 2), get_dll_path('sqlite3', 0),
+        get_dll_path('python' + py_ver, 2), get_dll_path('jbig', 2),
+    ]
+    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+        ans += [
+            j(PREFIX, 'bin', x) for x in ('optipng', 'cwebp', 'JxrDecApp')] + [
+            j(PREFIX, 'private', 'mozjpeg', 'bin', x) for x in ('jpegtran', 'cjpeg')] + [
             # debian/ubuntu for for some typical stupid reason use libpcre.so.3
             # instead of libpcre.so.0 like other distros. And Qt's idiotic build
             # system links against this pcre library despite being told to use
@@ -51,8 +85,7 @@ def binary_includes():
             # than libc and libpthread we bundle the Ubuntu one here
             glob.glob('/usr/lib/*/libpcre.so.3')[0],
 
-            get_dll_path('bz2', 2), j(PREFIX, 'lib', 'libunrar.so'), get_dll_path('sqlite3', 0),
-            get_dll_path('python' + py_ver, 2), get_dll_path('jbig', 2),
+            j(PREFIX, 'lib', 'libunrar.so'),
 
             # We don't include libstdc++.so as the OpenGL dlls on the target
             # computer fail to load in the QPA xcb plugin if they were compiled
@@ -61,7 +94,12 @@ def binary_includes():
             # distros do not have libstdc++.so.6, so it should be safe to leave it out.
             # https://gcc.gnu.org/onlinedocs/libstdc++/manual/abi.html (The current
             # debian stable libstdc++ is  libstdc++.so.6.0.17)
-    ] + list(map(qt_get_dll_path, QT_DLLS)) + list(map(ffmpeg_get_dll_path, ffmpeg_dlls))
+        ] + list(map(
+            get_dll_path,
+            ('usb-1.0 mtp dbus-1 ncursesw readline chm hunspell-1.7 stemmer'
+             ' espeak-ng onnxruntime dbus-glib-1').split()
+        )) + list(map(qt_get_dll_path, QT_DLLS)) + list(map(ffmpeg_get_dll_path, ffmpeg_dlls))
+    return ans
 
 
 class Env:
@@ -94,6 +132,29 @@ def ignore_in_lib(base, items, ignored_dirs=None):
     return ans
 
 
+def ignore_standalone_in_lib(base, items, ignored_dirs=None):
+    ans = set(ignore_in_lib(base, items, ignored_dirs))
+    if LINUX_BINARY_FLAVOR == 'ebook-convert':
+        if os.path.basename(base) == 'calibre':
+            ans.update(x for x in items if x in STANDALONE_CALIBRE_DROP_DIRS)
+        for package, filename in STANDALONE_QT_NAMED_PYTHON_FILES:
+            if os.path.basename(base) == package and filename in items:
+                ans.add(filename)
+    return ans
+
+
+def prune_standalone_resources(resources):
+    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+        return
+    for name in os.listdir(resources):
+        path = j(resources, name)
+        if name not in STANDALONE_RESOURCE_KEEP:
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+
+
 def import_site_packages(srcdir, dest):
     if not os.path.exists(dest):
         os.mkdir(dest)
@@ -108,7 +169,38 @@ def import_site_packages(srcdir, dest):
                 if os.path.exists(src) and os.path.isdir(src):
                     import_site_packages(src, dest)
         elif is_package_dir(f):
-            shutil.copytree(f, j(dest, x), ignore=ignore_in_lib)
+            if LINUX_BINARY_FLAVOR == 'ebook-convert' and x in STANDALONE_NO_QT_PACKAGES:
+                continue
+            shutil.copytree(f, j(dest, x), ignore=ignore_standalone_in_lib)
+
+
+def filter_standalone_calibre_extensions(dest, ext_map):
+    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+        return ext_map
+    for path in glob.glob(j(dest, '*.so')):
+        name = os.path.basename(path).partition('.')[0]
+        if name not in STANDALONE_CALIBRE_EXTENSIONS:
+            os.remove(path)
+    ans = {}
+    for key, path in ext_map.items():
+        name = os.path.basename(path).partition('.')[0]
+        key_name = str(key).rpartition('.')[-1]
+        if name in STANDALONE_CALIBRE_EXTENSIONS or key_name in STANDALONE_CALIBRE_EXTENSIONS:
+            ans[key] = path
+    return ans
+
+
+def is_forbidden_qt_artifact(name):
+    return name in STANDALONE_FORBIDDEN_QT_ARTIFACTS or (
+        name.startswith(('Qt', 'libQt')) and name.endswith(('.so', '.dylib', '.framework'))
+    )
+
+
+def validate_no_qt_artifacts(root):
+    for base, dirs, files in os.walk(root):
+        bad = sorted(x for x in set(dirs) | set(files) if is_forbidden_qt_artifact(x))
+        if bad:
+            raise SystemExit(f'Unexpected Qt artifacts in standalone package under {base}: {bad}')
 
 
 def copy_libs(env):
@@ -125,16 +217,17 @@ def copy_libs(env):
 
     base = j(QT_PREFIX, 'plugins')
     dest = j(env.lib_dir, '..', 'plugins')
-    os.mkdir(dest)
-    for x in QT_PLUGINS:
-        if x not in ('audio', 'printsupport'):
-            shutil.copytree(j(base, x), j(dest, x))
-    dest = j(env.lib_dir, '..', 'libexec')
-    os.mkdir(dest)
-    shutil.copy2(os.path.join(QT_PREFIX, 'libexec', 'QtWebEngineProcess'), dest)
-    dest = j(env.lib_dir, '..', 'share')
-    os.mkdir(dest)
-    shutil.copytree(os.path.join(PREFIX, 'share/espeak-ng-data'), os.path.join(dest, 'espeak-ng-data'))
+    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+        os.mkdir(dest)
+        for x in QT_PLUGINS:
+            if x not in ('audio', 'printsupport'):
+                shutil.copytree(j(base, x), j(dest, x))
+        dest = j(env.lib_dir, '..', 'libexec')
+        os.mkdir(dest)
+        shutil.copy2(os.path.join(QT_PREFIX, 'libexec', 'QtWebEngineProcess'), dest)
+        dest = j(env.lib_dir, '..', 'share')
+        os.mkdir(dest)
+        shutil.copytree(os.path.join(PREFIX, 'share/espeak-ng-data'), os.path.join(dest, 'espeak-ng-data'))
 
 
 def copy_python(env, ext_dir):
@@ -157,14 +250,19 @@ def copy_python(env, ext_dir):
     for x in os.listdir(env.SRC):
         c = j(env.SRC, x)
         if os.path.exists(j(c, '__init__.py')):
-            shutil.copytree(c, j(dest, x), ignore=partial(ignore_in_lib, ignored_dirs={}))
+            if LINUX_BINARY_FLAVOR == 'ebook-convert' and x in STANDALONE_NO_QT_PACKAGES:
+                continue
+            shutil.copytree(c, j(dest, x), ignore=partial(ignore_standalone_in_lib, ignored_dirs={}))
         elif os.path.isfile(c):
             shutil.copy2(c, j(dest, x))
     shutil.copytree(j(env.src_root, 'resources'), j(env.base, 'resources'))
-    for pak in glob.glob(j(QT_PREFIX, 'resources', '*')):
-        shutil.copy2(pak, j(env.base, 'resources'))
+    prune_standalone_resources(j(env.base, 'resources'))
+    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+        for pak in glob.glob(j(QT_PREFIX, 'resources', '*')):
+            shutil.copy2(pak, j(env.base, 'resources'))
     os.mkdir(j(env.base, 'translations'))
-    shutil.copytree(j(QT_PREFIX, 'translations', 'qtwebengine_locales'), j(env.base, 'translations', 'qtwebengine_locales'))
+    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+        shutil.copytree(j(QT_PREFIX, 'translations', 'qtwebengine_locales'), j(env.base, 'translations', 'qtwebengine_locales'))
     sitepy = j(self_dir, 'site.py')
     shutil.copy2(sitepy, j(env.py_dir, 'site.py'))
 
@@ -177,6 +275,7 @@ def copy_python(env, ext_dir):
     os.rmdir(j(env.py_dir, 'site-packages'))
     print('Extracting extension modules from', ext_dir, 'to', pdir)
     ext_map = extract_extension_modules(ext_dir, pdir)
+    ext_map = filter_standalone_calibre_extensions(pdir, ext_map)
     shutil.rmtree(j(env.py_dir, 'calibre', 'plugins'))
     print('Extracting extension modules from', env.py_dir, 'to', pdir)
     ext_map.update(extract_extension_modules(env.py_dir, pdir))
@@ -203,10 +302,17 @@ def build_launchers(env):
 
     src = j(base, 'main.c')
 
-    modules, basenames, functions = calibre_constants['modules'].copy(), calibre_constants['basenames'].copy(), calibre_constants['functions'].copy()
-    modules['console'].append('calibre.linux')
-    basenames['console'].append('calibre_postinstall')
-    functions['console'].append('main')
+    modules = {k: list(v) for k, v in calibre_constants['modules'].items()}
+    basenames = {k: list(v) for k, v in calibre_constants['basenames'].items()}
+    functions = {k: list(v) for k, v in calibre_constants['functions'].items()}
+    if LINUX_BINARY_FLAVOR == 'ebook-convert':
+        modules = {'console': ['calibre.ebooks.conversion.standalone_binary'], 'gui': []}
+        basenames = {'console': ['ebook-convert'], 'gui': []}
+        functions = {'console': ['main'], 'gui': []}
+    else:
+        modules['console'].append('calibre.linux')
+        basenames['console'].append('calibre_postinstall')
+        functions['console'].append('main')
     c_launcher = '/tmp/calibre-c-launcher'
     lsrc = os.path.join(base, 'launcher.c')
     cmd = ['gcc', '-O2', '-o', c_launcher, lsrc, ]
@@ -220,6 +326,8 @@ def build_launchers(env):
             xflags += ['-DGUI_APP=' + ('1' if typ == 'gui' else '0')]
             xflags += ['-DMODULE=L"%s"' % mod, '-DBASENAME=L"%s"' % bname,
                        '-DFUNCTION=L"%s"' % func]
+            if LINUX_BINARY_FLAVOR == 'ebook-convert':
+                xflags.append('-DSTANDALONE_CONVERTER=1')
 
             exe = j(env.bin_dir, bname)
             cmd = ['gcc'] + xflags + [src, '-o', exe, '-L' + env.lib_dir, '-lcalibre-launcher']
@@ -271,12 +379,61 @@ def strip_binaries(env):
         x = os.path.realpath(x)
         if x not in files and is_elf(x):
             files.add(x)
-    files.add(j(env.lib_dir, '..', 'libexec', 'QtWebEngineProcess'))
+    qtwebengine_process = j(env.lib_dir, '..', 'libexec', 'QtWebEngineProcess')
+    if os.path.exists(qtwebengine_process):
+        files.add(qtwebengine_process)
     print('Stripping %d files...' % len(files))
     before = sum(os.path.getsize(x) for x in files)
     strip_files(files)
     after = sum(os.path.getsize(x) for x in files)
     print('Stripped %.1f MB' % ((before - after) / (1024 * 1024.)))
+
+
+def run_package_tests(env):
+    if LINUX_BINARY_FLAVOR == 'ebook-convert':
+        validate_standalone_package_surface(env)
+        subprocess.check_call([
+            sys.executable, j(CALIBRE_DIR, 'setup', 'standalone_ebook_convert_smoke.py'),
+            '--forbid-qt-imports', j(env.base, 'ebook-convert')
+        ])
+    else:
+        iv['run_tests'](j(env.base, 'calibre-debug'), env.base)
+
+
+def validate_standalone_package_surface(env):
+    validate_no_qt_artifacts(env.base)
+    allowed = {'bin', 'ebook-convert', 'lib', 'libexec', 'plugins', 'resources', 'share', 'translations'}
+    found = set(os.listdir(env.base))
+    unexpected = found - allowed
+    missing = {'bin', 'ebook-convert', 'lib', 'resources'} - found
+    if unexpected or missing:
+        raise SystemExit(f'Unexpected standalone package surface. Unexpected: {sorted(unexpected)}, missing: {sorted(missing)}')
+    forbidden = set(calibre_constants['basenames']['console']) | set(calibre_constants['basenames']['gui']) | {'calibre_postinstall'}
+    forbidden.discard('ebook-convert')
+    exposed = set(os.listdir(env.bin_dir)) | found
+    extra_commands = exposed.intersection(forbidden)
+    if extra_commands:
+        raise SystemExit(f'Unexpected calibre commands in standalone package: {sorted(extra_commands)}')
+
+
+def validate_standalone_archive(path):
+    allowed = {'bin', 'ebook-convert', 'lib', 'libexec', 'plugins', 'resources', 'share', 'translations'}
+    with tarfile.open(path, mode='r:xz') as tf:
+        members = tuple(x.name for x in tf.getmembers() if x.name and not x.name.startswith('/'))
+        found = {x.split('/', 1)[0] for x in members}
+        qt_artifacts = sorted(x for x in members if is_forbidden_qt_artifact(os.path.basename(x)))
+        if qt_artifacts:
+            raise SystemExit(f'Unexpected Qt artifacts in standalone archive: {qt_artifacts}')
+    unexpected = found - allowed
+    missing = {'bin', 'ebook-convert', 'lib', 'resources'} - found
+    if unexpected or missing:
+        raise SystemExit(f'Unexpected standalone archive surface. Unexpected: {sorted(unexpected)}, missing: {sorted(missing)}')
+    forbidden = set(calibre_constants['basenames']['console']) | set(calibre_constants['basenames']['gui']) | {'calibre_postinstall'}
+    forbidden.discard('ebook-convert')
+    exposed = {x.split('/', 1)[0] for x in members} | {x.split('/', 2)[1] for x in members if x.startswith('bin/') and '/' in x}
+    extra_commands = exposed.intersection(forbidden)
+    if extra_commands:
+        raise SystemExit(f'Unexpected calibre commands in standalone archive: {sorted(extra_commands)}')
 
 
 def create_tarfile(env, compression_level='9'):
@@ -289,7 +446,10 @@ def create_tarfile(env, compression_level='9'):
         if err.errno not in (errno.ENOENT, errno.EBUSY):
             raise
     os.makedirs(base, exist_ok=True)  # when base is a mount point deleting it fails with EBUSY
-    dist = os.path.join(base, '%s-%s-%s.tar' % (calibre_constants['appname'], calibre_constants['version'], arch))
+    appname = calibre_constants['appname']
+    if LINUX_BINARY_FLAVOR == 'ebook-convert':
+        appname += '-ebook-convert'
+    dist = os.path.join(base, '%s-%s-%s.tar' % (appname, calibre_constants['version'], arch))
     with tarfile.open(dist, mode='w', format=tarfile.PAX_FORMAT) as tf:
         cwd = os.getcwd()
         os.chdir(env.base)
@@ -305,6 +465,8 @@ def create_tarfile(env, compression_level='9'):
     secs = time.time() - start_time
     print('Compressed in %d minutes %d seconds' % (secs // 60, secs % 60))
     os.rename(dist + '.xz', ans)
+    if LINUX_BINARY_FLAVOR == 'ebook-convert':
+        validate_standalone_archive(ans)
     print('Archive %s created: %.2f MB' % (
         os.path.basename(ans), os.stat(ans).st_size / (1024.**2)))
 
@@ -312,13 +474,12 @@ def create_tarfile(env, compression_level='9'):
 def main():
     args = globals()['args']
     ext_dir = globals()['ext_dir']
-    run_tests = iv['run_tests']
     env = Env()
     copy_libs(env)
     copy_python(env, ext_dir)
     build_launchers(env)
     if not args.skip_tests:
-        run_tests(j(env.base, 'calibre-debug'), env.base)
+        run_package_tests(env)
     if not args.dont_strip:
         strip_binaries(env)
     create_tarfile(env, args.compression_level)
