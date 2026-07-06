@@ -81,6 +81,14 @@ def resize_image(img, width, height):
     return ImageWrapper(_pil(img).resize((int(width), int(height)), Image.Resampling.LANCZOS))
 
 
+def resize_to_fit(data, width, height):
+    img = _pil(image_from_data(data))
+    if img.width <= width and img.height <= height:
+        return False, ImageWrapper(img)
+    img.thumbnail((int(width), int(height)))
+    return True, ImageWrapper(img)
+
+
 def scale_image(data, width=60, height=80, compression_quality=70, as_png=False, preserve_aspect_ratio=True):
     from PIL import Image
     img = _pil(image_from_data(data))

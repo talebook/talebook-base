@@ -13,8 +13,12 @@ from calibre import sanitize_file_name
 from calibre.constants import iswindows
 from calibre.ebooks.docx.names import SVG_BLIP_URI, barename
 from calibre.utils.filenames import ascii_filename
-from calibre.utils.img import image_to_data, resize_to_fit
 from calibre.utils.imghdr import what
+
+if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
+    from calibre.utils.standalone_img import image_to_data, resize_to_fit
+else:
+    from calibre.utils.img import image_to_data, resize_to_fit
 
 
 class LinkedImageNotFound(ValueError):

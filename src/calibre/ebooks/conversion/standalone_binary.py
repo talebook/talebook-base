@@ -31,7 +31,11 @@ from calibre.utils.logging import Log
 
 from calibre.ebooks.conversion.cli import main as ebook_convert_main
 
-SUPPORTED_USER_FORMATS = frozenset({'epub', 'mobi', 'pdf', 'txt'})
+SUPPORTED_INPUT_FORMATS = frozenset({
+    'azw', 'azw3', 'docx', 'epub', 'mobi', 'original_epub',
+    'pdf', 'prc', 'txt', 'zip',
+})
+SUPPORTED_OUTPUT_FORMATS = frozenset({'epub', 'mobi', 'pdf', 'txt'})
 
 
 def path_format(path):
@@ -81,15 +85,17 @@ def validate_args(args, log=None):
     input_fmt = path_format(input_path)
     output_fmt = path_format(output_path)
     bad = []
-    if input_fmt not in SUPPORTED_USER_FORMATS:
+    if input_fmt not in SUPPORTED_INPUT_FORMATS:
         bad.append(('input', input_fmt or 'open ebook/folder'))
-    if output_fmt not in SUPPORTED_USER_FORMATS:
+    if output_fmt not in SUPPORTED_OUTPUT_FORMATS:
         bad.append(('output', output_fmt or 'open ebook/folder'))
     if bad:
-        allowed = ', '.join(sorted(SUPPORTED_USER_FORMATS))
+        allowed_input = ', '.join(sorted(SUPPORTED_INPUT_FORMATS))
+        allowed_output = ', '.join(sorted(SUPPORTED_OUTPUT_FORMATS))
         for which, fmt in bad:
             log.error(f'Unsupported {which} format for this standalone binary: {fmt}')
-        log.error(f'This standalone binary supports only these formats: {allowed}')
+        log.error(f'This standalone binary supports these input formats: {allowed_input}')
+        log.error(f'This standalone binary supports these output formats: {allowed_output}')
         return False
     return True
 

@@ -139,6 +139,7 @@ CORE_SYSTEM_LIB_PREFIXES = (
 )
 STANDALONE_OVERLAY_FILES = (
     'calibre/customize/standalone_builtins.py',
+    'calibre/ebooks/docx/images.py',
     'calibre/ebooks/conversion/plugins/standalone_pdf_output.py',
     'calibre/ebooks/conversion/standalone_binary.py',
     'calibre/utils/safe_atexit.py',

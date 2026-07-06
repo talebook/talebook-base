@@ -11,10 +11,16 @@ from pathlib import Path
 
 
 SUPPORTED_TARGETS = {
+    'azw': ('epub',),
+    'azw3': ('epub',),
+    'docx': ('epub',),
     'epub': ('mobi', 'pdf'),
     'mobi': ('epub', 'pdf'),
+    'original_epub': ('epub',),
     'pdf': ('txt',),
+    'prc': ('epub',),
     'txt': ('epub', 'pdf'),
+    'zip': ('epub',),
 }
 CJK_RE = re.compile(r'[\u3400-\u9fff]')
 
@@ -26,7 +32,7 @@ def safe_name(path):
 
 def sample_files(samples_dir):
     for path in sorted(samples_dir.rglob('*')):
-        if path.is_file() and path.name != 'manifest.tsv':
+        if path.is_file() and path.name != 'manifest.tsv' and not path.name.startswith('.'):
             yield path
 
 

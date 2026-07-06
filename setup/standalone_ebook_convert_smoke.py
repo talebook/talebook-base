@@ -429,8 +429,10 @@ def self_test():
     assert mod.validate_args(['ebook-convert', 'a.epub', 'b.pdf', '-h'])
     assert mod.validate_args(['ebook-convert', '-h'])
     assert mod.validate_args(['ebook-convert', 'a.docx', 'b.epub', '--version'])
-    assert not mod.validate_args(['ebook-convert', 'a.docx', 'b.epub'])
-    assert not mod.validate_args(['ebook-convert', 'a.docx', 'b.epub', '-h'])
+    for fmt in ('azw', 'azw3', 'docx', 'original_epub', 'prc', 'zip'):
+        assert mod.validate_args(['ebook-convert', f'a.{fmt}', 'b.epub'])
+        assert mod.validate_args(['ebook-convert', f'a.{fmt}', 'b.epub', '-h'])
+    assert not mod.validate_args(['ebook-convert', 'a.doc', 'b.epub'])
     assert not mod.validate_args(['ebook-convert', 'a.epub', 'b.docx'])
     assert not mod.validate_args(['ebook-convert', '--list-recipes'])
     assert tuple(parse_otool_deps('x:\n\t@rpath/QtCore.framework/Versions/A/QtCore (compatibility version 1.0.0, current version 1.0.0)\n')) == (
@@ -571,8 +573,8 @@ def smoke_test(converter, work_dir):
                 assert_pdf_contains(converter, output_path, CJK_SENTINEL)
 
     run_failure([converter, sources['txt'], os.path.join(work_dir, 'unsupported.docx')])
-    run_failure([converter, os.path.join(work_dir, 'unsupported.docx'), os.path.join(work_dir, 'unsupported.epub')])
-    run_failure([converter, os.path.join(work_dir, 'unsupported.docx'), os.path.join(work_dir, 'unsupported.epub'), '-h'])
+    run_failure([converter, os.path.join(work_dir, 'unsupported.doc'), os.path.join(work_dir, 'unsupported.epub')])
+    run_failure([converter, os.path.join(work_dir, 'unsupported.doc'), os.path.join(work_dir, 'unsupported.epub'), '-h'])
     run_failure([converter, '--list-recipes'])
 
 

@@ -47,14 +47,18 @@ runtime bundle：
 
 用户可直接使用的格式被限制为：
 
-- 输入：`epub`、`mobi`、`pdf`、`txt`
+- 输入：`azw`、`azw3`、`docx`、`epub`、`mobi`、`original_epub`、`pdf`、`prc`、
+  `txt`、`zip`
 - 输出：`epub`、`mobi`、`pdf`、`txt`
 
-入口层会拒绝其它扩展，返回码为 `2`。例如 `azw`、`azw3`、`doc`、`docx`、
-`ebk3`、`original_epub`、`png`、`prc`、`wps`、`zip` 在当前 standalone
-策略下都不会进入转换管线。
+入口层会拒绝其它扩展或输出格式，返回码为 `2`。例如 `doc`、`ebk3`、`png`、`wps`
+仍不会进入转换管线。
 
 这是一种有意的边界控制：减少隐式依赖、避免把完整 calibre 的插件面重新带回来。
+本轮按照 `samples/ca-format-samples` 和原版 calibre 8.5.0 的实测结果，补入了原版可正常
+处理且不需要 Qt 的样本输入格式：`azw/azw3/prc` 走 `MOBIInput`，`original_epub`
+走 `EPUBInput`，`zip` 先由 calibre archive 预处理展开后再走真实输入插件，`docx`
+走 `DOCXInput`。
 
 ## 核心实现
 
@@ -67,15 +71,16 @@ runtime bundle：
 - 设置 `CALIBRE_STANDALONE_CONVERTER=1`。
 - 在 `CALIBRE_STANDALONE_FORBID_QT=1` 时安装 import guard，禁止导入 `qt` 和
   `PyQt6`。
-- 在调用 calibre 原始 conversion CLI 之前校验输入/输出扩展，只允许
+- 在调用 calibre 原始 conversion CLI 之前分开校验输入/输出扩展；输入允许
+  `azw/azw3/docx/epub/mobi/original_epub/pdf/prc/txt/zip`，输出允许
   `epub/mobi/pdf/txt`。
 
 ### 插件剪裁
 
 `src/calibre/customize/standalone_builtins.py` 定义 standalone 内置插件集合，只保留：
 
-- EPUB/MOBI/PDF/TXT 的 metadata reader/writer。
-- EPUB/MOBI/PDF/TXT 输入输出插件。
+- EPUB/MOBI/PDF/TXT/DOCX 的 metadata reader，EPUB/MOBI/PDF 的 metadata writer。
+- EPUB/MOBI/PDF/TXT/DOCX 输入插件，EPUB/MOBI/PDF/TXT 输出插件。
 - 内部转换需要的 `HTMLInput`、`OEBOutput`。
 - input/output profile。
 
@@ -89,15 +94,20 @@ device 插件。
 
 `src/calibre/ebooks/conversion/plugins/standalone_pdf_output.py` 提供一个小型 PDF 输出插件。
 
-它不使用 QtWebEngine，也不追求像素级 HTML/CSS 还原。实现方式是从 OEB spine 中提取
-文本，按页面尺寸和字体大小换行，然后直接写出一个简单 PDF。包内携带一个 standalone
-CJK 字体，PDF 以 `CIDFontType2`/`Identity-H` 嵌入该字体，正文以 UTF-16BE hex
-string 写入，并带 ToUnicode CMap，用于显示和抽取中文等非 Latin-1 文本。
+它不使用 QtWebEngine，也不追求像素级 HTML/CSS 还原。文本书的实现方式是从 OEB
+spine 中提取文本，按页面尺寸和字体大小保守换行，然后直接写出一个简单 PDF。包内携带
+一个 standalone CJK 字体，PDF 以 `CIDFontType2`/`Identity-H` 嵌入该字体，正文以
+UTF-16BE hex string 写入，并带 ToUnicode CMap，用于显示和抽取中文等非 Latin-1
+文本。
+
+对于扫描版/图片页书籍，如果 spine 中几乎没有可抽文本但包含大量图片，standalone PDF
+输出会把图片按阅读顺序写成每图一页的 PDF image XObject。这用于覆盖 `PRC/2042`
+这类原版输出也是图片页 PDF、`pdftotext` 抽不到正文的样本。
 
 这个选择的取舍是：
 
-- 优点：无 Qt/PyQt 依赖，中文文本可显示和抽取，适合作为转换服务中的基础 PDF 输出。
-- 代价：复杂排版、图片、CSS 视觉效果不会完整保留。
+- 优点：无 Qt/PyQt 依赖，中文文本可显示和抽取，扫描页书籍不会退化成一页标题。
+- 代价：复杂 HTML/CSS 视觉效果不会完整保留。
 
 入口校验假设调用形态和 calibre CLI 一致：输入文件和输出文件位于命令行前两个位置，
 即 `ebook-convert INPUT OUTPUT [options...]`。
@@ -115,6 +125,8 @@ MOBI 相关改动主要为 no-Qt：
 - `mobi_output.py` 在 standalone 环境下禁用 `SVGRasterizer`，避免导入 Qt rasterizer。
 - `mobi6.py`、`mobi/utils.py`、`mobi/writer2/resources.py` 在 standalone 环境下使用
   `calibre.utils.standalone_img`。
+- `docx/images.py` 在 standalone 环境下使用 `calibre.utils.standalone_img`，避免 DOCX
+  图片缩放路径导入 Qt 版 `calibre.utils.img`。
 - `standalone_img.py` 使用 Pillow 实现基础图片读取、缩放、格式转换、cover 保存、
   GIF/PNG/JPEG 处理。
 
@@ -170,15 +182,31 @@ Linux 脚本中特别排除了 Debian 中依赖 Qt 的 native 插件，例如 `i
 
 `setup/standalone_ebook_convert_sample_matrix.py` 用真实样本目录做矩阵验证：
 
+- `azw -> epub`
+- `azw3 -> epub`
+- `docx -> epub`
 - `epub -> mobi`
 - `epub -> pdf`
 - `mobi -> epub`
 - `mobi -> pdf`
+- `original_epub -> epub`
 - `pdf -> txt`
+- `prc -> epub`
 - `txt -> epub`
 - `txt -> pdf`
+- `zip -> epub`
 - 所有 PDF 输出都会用 `pdftotext` 抽取正文，校验中文字符数量和 `?` 占位比例。
-- 其它格式预期被 standalone 入口拒绝，返回码 `2`，且不生成输出。
+- `doc`、`ebk3`、`png`、`wps` 等原版也无法在该样本集中成功转换的格式预期被
+  standalone 入口拒绝，返回码 `2`，且不生成输出。
+
+`setup/standalone_ebook_convert_reference_compare.py` 用同一批样本对比 standalone 和
+reference `ebook-convert`：
+
+- 对每个样本分别跑 reference 和 standalone。
+- 对生成的 `txt` 直接读取；对 `pdf` 用 `pdftotext` 抽取；对 `epub/mobi` 再调用
+  reference `ebook-convert` 转成 TXT 后比较正文。
+- 比较正文长度比例、CJK 字符数量比例、相似度和文本 hash。
+- 同时记录双方返回码、输出大小、首条日志，便于区分 standalone 缺口和 reference 环境问题。
 
 ## Debian 容器验证记录
 
@@ -256,20 +284,77 @@ Sample matrix: 29/29 ok
 
 说明：
 
+- 两个 AZW 样本成功转换为 EPUB。
+- 两个 AZW3 样本成功转换为 EPUB。
+- 两个 DOCX 样本成功转换为 EPUB。
 - 两个 EPUB 样本成功转换为 MOBI 和 PDF。
 - 两个 MOBI 样本成功转换为 EPUB 和 PDF。
+- 一个 ORIGINAL_EPUB 样本成功转换为 EPUB。
 - 两个 PDF 样本成功转换为 TXT。
+- 两个 PRC 样本成功转换为 EPUB。
 - 两个 TXT 样本成功转换为 EPUB 和 PDF。
+- 一个 ZIP 样本成功展开并转换为 EPUB。
 - 所有样本 PDF 输出都经过 `pdftotext` 抽取校验，要求含有足量中文且不是 `?` 占位。
-- 其余格式样本按 standalone 边界被拒绝，返回码为 `2`。
-- 21MB 的大 MOBI 样本超过 240 秒默认超时，因此最终用 900 秒超时验证通过。
+- `doc/ebk3/png/wps` 样本按 standalone 边界被拒绝，返回码为 `2`。
+- 21MB 的大 MOBI、PRC 和 ZIP 样本会明显拉长运行时间，因此最终用 900 秒超时验证通过。
+
+Debian reference 对比：
+
+```text
+Reference comparison: ok=41, same_fail=16, standalone_extra=6
+Report: /out/reference-compare-nonpdf-input-expansion/reference-compare.tsv
+```
+
+解释：
+
+- `ok=41`：双方都成功，且抽取文本内容通过长度、CJK 字符数量和相似度校验。
+- `same_fail=16`：双方都失败，覆盖 `doc/ebk3/png/wps` 等当前不支持样本。
+- `standalone_extra=6`：均为 PDF 输入到 `epub/mobi/txt`。Debian 容器里的
+  `/usr/bin/ebook-convert` 在这些 PDF 样本上返回 `1`，而 standalone 成功；这反映
+  Debian reference 环境不适合作为 PDF parity 参考。PDF 输入能力已由 standalone
+  sample matrix 和 smoke 单独验证。
+
+Talebook reference 对比使用本地可信 `talebook/talebook:latest` 镜像，容器内
+`/usr/bin/ebook-convert` 为 calibre 8.5.0。原版 PDF 输出在容器 root 环境下需要
+`QTWEBENGINE_DISABLE_SANDBOX=1`。
+
+PDF 输出对比：
+
+```text
+Reference comparison: ok=15, same_fail=5
+Report: /tmp/reference-compare-talebook-pdf-final/reference-compare.tsv
+```
+
+说明：
+
+- `ok=15`：双方 PDF 输出成功，`pdftotext` 抽取后的正文长度、CJK 字符数和 `?`
+  占位比例通过校验。
+- `same_fail=5`：双方都失败，覆盖 `doc/ebk3/png/wps` 等边界外样本。
+- `MOBI/54... -> pdf` 在 talebook 原版 QtWebEngine 路径下返回失败且资源消耗很高；
+  未作为 PDF parity 成功样本计入。
+
+非 PDF 输出对比：
+
+```text
+Reference comparison: ok=41, same_fail=16, standalone_extra=6
+Report: /tmp/reference-compare-talebook-nonpdf-final/reference-compare.tsv
+```
+
+说明：
+
+- `ok=41`：双方都成功，文本抽取内容通过长度、CJK 字符数、相似度或 hash 校验。
+- `same_fail=16`：双方都失败，覆盖边界外样本。
+- `standalone_extra=6`：均为两个 PDF 样本输入到 `epub/mobi/txt`。talebook 原版
+  `PDFInput` 默认 reflow XML 路径因非 UTF-8 字节触发 `lxml.etree.XMLSyntaxError`；
+  standalone 默认使用 `pdftohtml`，所以转换成功。这是 standalone 额外修复能力，
+  不是输出 parity 缺口。
 
 最终 Linux 产物：
 
 ```text
 dist/calibre-ebook-convert-noqt-linux-arm64.tgz
-size: 68.48 MB
-sha256: 1989d4c6bb0ebdac7256f7d855418029780e0fa34194d8e3b42c895df98dc4e4
+size: 68.49 MB
+sha256: 8ec0253272a9ca7a56323cebbd7f694b471884697bbe4cf1b7b884ca63ac41ce
 ```
 
 容器内保留：
@@ -307,9 +392,12 @@ sha256: 6c252fdcaa9ad6ced6b06d938f5577704cd42ffb2eaa2a524e5fc4b4f3d0bd40
 
 已知限制：
 
-- 只支持 `epub/mobi/pdf/txt` 作为用户可见格式。
-- PDF 输出是轻量文本 PDF，保留 Unicode/CJK 文本，但不保证复杂 HTML/CSS/图片排版。
-  当前实现为每个 PDF 嵌入完整 standalone CJK 字体，因此 PDF 输出文件会比纯文本内容大。
+- 输出格式仍只支持 `epub/mobi/pdf/txt`。输入格式按当前样本验证扩展到
+  `azw/azw3/docx/epub/mobi/original_epub/pdf/prc/txt/zip`，但仍不是完整 calibre
+  的全部输入插件集合。
+- PDF 输出是轻量 PDF，保留 Unicode/CJK 文本；扫描页书籍会输出图片页 PDF。但它仍
+  不保证复杂 HTML/CSS 视觉排版与 QtWebEngine 原版逐像素一致。当前实现为文本 PDF
+  嵌入完整 standalone CJK 字体，因此 PDF 输出文件会比纯文本内容大。
 - MOBI 输出中的 SVG rasterizer 被禁用，SVG 不保证转换为位图。
 - 通过 MOBI 中转做 `epub -> epub` 回环不能视为无损：嵌入字体、CSS 背景装饰图、
   透明度和布局都可能丢失。这是 MOBI 中间格式的固有限制，不是 standalone 特有问题。
@@ -322,7 +410,7 @@ sha256: 6c252fdcaa9ad6ced6b06d938f5577704cd42ffb2eaa2a524e5fc4b4f3d0bd40
 
 后续可以考虑：
 
-- 如果需要支持 `azw/azw3/prc`，需要重新评估入口格式限制和样本预期。
+- 如果需要支持更多输入或输出格式，需要逐项确认插件依赖不会把 Qt 或 GUI surface 带回包中。
 - 如果需要高保真 PDF 输出，需要引入一个非 Qt 的 HTML-to-PDF 引擎，并重新评估体积。
 - 如果需要更小的 Linux 包，可以继续缩减 Python stdlib、字体资源和动态库 allowlist。
 - 如果要发布多架构 Linux 包，应使用 bypy Linux 构建路径验证 x86_64 和 arm64，而不是只依赖

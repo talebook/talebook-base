@@ -2,6 +2,7 @@ __license__ = 'GPL v3'
 __copyright__ = '2026, Kovid Goyal <kovid at kovidgoyal.net>'
 
 from calibre.customize import MetadataReaderPlugin, MetadataWriterPlugin
+from calibre.ebooks.conversion.plugins.docx_input import DOCXInput
 from calibre.ebooks.conversion.plugins.epub_input import EPUBInput
 from calibre.ebooks.conversion.plugins.epub_output import EPUBOutput
 from calibre.ebooks.conversion.plugins.html_input import HTMLInput
@@ -58,6 +59,17 @@ class TXTMetadataReader(MetadataReaderPlugin):
 
     def get_metadata(self, stream, ftype):
         from calibre.ebooks.metadata.txt import get_metadata
+        return get_metadata(stream)
+
+
+class DocXMetadataReader(MetadataReaderPlugin):
+
+    name = 'Read DOCX metadata'
+    file_types = {'docx'}
+    description = _('Read metadata from %s files') % 'DOCX'
+
+    def get_metadata(self, stream, ftype):
+        from calibre.ebooks.metadata.docx import get_metadata
         return get_metadata(stream)
 
 
@@ -129,6 +141,7 @@ plugins = [
     MOBIMetadataReader,
     PDFMetadataReader,
     TXTMetadataReader,
+    DocXMetadataReader,
     EPUBMetadataWriter,
     MOBIMetadataWriter,
     PDFMetadataWriter,
@@ -137,6 +150,7 @@ plugins = [
     StandalonePDFInput,
     TXTInput,
     HTMLInput,
+    DOCXInput,
     EPUBOutput,
     MOBIOutput,
     StandalonePDFOutput,
