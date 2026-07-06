@@ -1,0 +1,24 @@
+{
+  "checkpoint_id": "616ec569ac02",
+  "strategy": "manual-commit",
+  "branch": "only-ebook-convert",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "chats/2026-07-02-standalone-ebook-convert-fix-brief.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/61/6ec569ac02/0/metadata.json",
+      "prompt": "/61/6ec569ac02/0/prompt.txt",
+      "transcript": "/61/6ec569ac02/0/full.jsonl",
+      "content_hash": "/61/6ec569ac02/0/content_hash.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 17532,
+    "cache_creation_tokens": 124843,
+    "cache_read_tokens": 5459947,
+    "output_tokens": 53261,
+    "api_call_count": 58
+  }
+}
