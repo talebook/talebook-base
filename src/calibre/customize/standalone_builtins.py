@@ -13,7 +13,6 @@ from calibre.ebooks.conversion.plugins.mobi_input import MOBIInput
 from calibre.ebooks.conversion.plugins.mobi_output import AZW3Output, MOBIOutput
 from calibre.ebooks.conversion.plugins.oeb_output import OEBOutput
 from calibre.ebooks.conversion.plugins.pdf_input import PDFInput
-from calibre.ebooks.conversion.plugins.standalone_pdf_output import StandalonePDFOutput
 from calibre.ebooks.conversion.plugins.txt_input import TXTInput
 from calibre.ebooks.conversion.plugins.txt_output import TXTOutput
 
@@ -179,7 +178,6 @@ plugins = [
     EPUBOutput,
     MOBIOutput,
     AZW3Output,
-    StandalonePDFOutput,
     TXTOutput,
     OEBOutput,
 ] + input_profiles + output_profiles

@@ -6,11 +6,9 @@ from __future__ import annotations
 import os
 import sys
 
-from talebook_calibre_env import RUNTIME_ROOT
-
-
-EBOOK_CONVERT = os.path.join(RUNTIME_ROOT, "ebook-convert")
-EBOOK_CONVERT_PDF = os.path.join(RUNTIME_ROOT, "ebook-convert-pdf")
+ENTRYPOINT_ROOT = os.path.dirname(os.path.abspath(__file__))
+EBOOK_CONVERT = os.path.join(ENTRYPOINT_ROOT, "run_ebook_convert.py")
+EBOOK_CONVERT_PDF = os.path.join(ENTRYPOINT_ROOT, "run_ebook_convert_pdf.py")
 
 PDF_DROP_OPTIONS = {
     "--no-chapters-in-toc",
@@ -86,7 +84,7 @@ def main(argv: list[str]) -> None:
     else:
         target = EBOOK_CONVERT
         args = argv
-    os.execv(target, [target, *args])
+    os.execv(sys.executable, [sys.executable, target, *args])
 
 
 if __name__ == "__main__":

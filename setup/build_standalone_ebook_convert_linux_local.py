@@ -141,7 +141,6 @@ STANDALONE_OVERLAY_FILES = (
     'calibre/customize/standalone_builtins.py',
     'calibre/ebooks/docx/images.py',
     'calibre/ebooks/conversion/standalone_common.py',
-    'calibre/ebooks/conversion/plugins/standalone_pdf_output.py',
     'calibre/ebooks/conversion/standalone_binary.py',
     'calibre/utils/img_shim.py',
     'calibre/utils/safe_atexit.py',
@@ -272,7 +271,7 @@ os.environ.setdefault("CALIBRE_STANDALONE_CONVERTER", "1")
 os.environ.setdefault("CALIBRE_STANDALONE_FORBID_QT", "1")
 sys.resources_location = os.environ.get("TALEBOOK_CALIBRE_RESOURCES", "/usr/share/calibre")
 sys.extensions_location = os.environ.get("TALEBOOK_CALIBRE_PLUGINS", "/usr/lib/calibre/calibre/plugins")
-sys.executables_location = os.environ.get("TALEBOOK_CALIBRE_BIN", "/usr/bin")
+sys.executables_location = os.environ.get("TALEBOOK_CALIBRE_BIN", "/usr/lib/talebook-calibre/bin")
 sys.system_plugins_location = None
 sys.frozen = False
 ''', encoding='utf-8')

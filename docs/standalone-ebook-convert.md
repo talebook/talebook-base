@@ -1,26 +1,26 @@
 # Standalone ebook-convert 方案归档
 
-本文记录 `only-ebook-convert` 分支中将 calibre 剪裁为独立 `ebook-convert`
-交付物的调研、实现和验证过程。
+本文记录 `only-ebook-convert` 分支中将 calibre 剪裁为 Talebook 无 Qt 转换运行时的
+调研、实现和验证过程。早期独立目录包的验证记录仍保留在后半部分；当前
+`talebook-base` 镜像已改为 Debian 系统 Python 布局。
 
 ## 目标
 
-目标是从完整 calibre 中拆出一个只暴露 `ebook-convert` 的独立发布包，用于
-EPUB、MOBI、PDF、TXT 之间的转换。
+目标是保留 Talebook 实际调用的 `ebook-convert` 与 `calibredb`，同时从最终镜像移除
+Qt/PyQt/QtWebEngine。最终交付物不是完整 calibre，也不是单个静态 ELF，而是基于
+`debian:13-slim` 的系统运行时：
 
-交付物不是完整 calibre，也不是单个静态 ELF/Mach-O 文件。当前方案是一个目录式
-runtime bundle：
+- 使用 Debian `/usr/bin/python3`，并保留 `python3-pip` 供上层 Talebook 安装
+  requirements；不再携带私有 Python 解释器或 `PYTHONHOME`。
+- Calibre Python 代码位于 `/usr/lib/calibre`，资源位于 `/usr/share/calibre`。
+- 必要 native 库和 Poppler helper 分别位于 `/usr/lib/talebook-calibre/lib` 与
+  `/usr/lib/talebook-calibre/bin`。
+- 公开命令为 `ebook-convert`、`ebook-convert-pdf`、`calibredb`。
+- `.pdf` 输出由入口路由到 WeasyPrint；轻量 Calibre 转换器不再注册 PDF 输出插件。
 
-- 顶层提供一个可执行入口 `ebook-convert`。
-- 包内自带 Python 解释器、Python 标准库和必要 third-party 包。
-- 包内自带剪裁后的 calibre Python 代码、必要 native 插件和资源。
-- 包内自带 Poppler helper，例如 `pdftohtml`、`pdfinfo`、`pdftoppm`、
-  `pdftotext`。
-- 包内收集运行所需的非 Qt 动态库，并通过 launcher 设置
-  `PYTHONHOME`、`PYTHONPATH`、`LD_LIBRARY_PATH` 或 macOS 对应环境。
-
-因此使用方不需要安装 calibre，也不需要安装 Python Qt/PyQt。Linux 产物仍然要求
-运行系统具备兼容的 Linux 内核和基础 libc ABI，这和大多数 Linux 二进制包一致。
+构建阶段只用 `apt-get --download-only` 获取 Debian 包；随后用 `dpkg-deb -x` 解包，
+Qt/PyQt 包在进入取材树前被过滤。最终阶段从干净的 `debian:13-slim` 开始，只复制
+白名单代码、资源、helper 和递归收集出的非 Qt ELF 依赖。
 
 ## 调研结论
 
@@ -34,7 +34,8 @@ runtime bundle：
 `ebook-convert` 的核心转换链路可以从完整 calibre 中剥离出来，但有几个关键点：
 
 - 插件系统默认会加载大量内置插件，需要提供 standalone 插件列表或运行时过滤。
-- PDF 输出默认走 QtWebEngine 相关路径，不适合 no-Qt 独立包。
+- Calibre 原生 PDF 输出默认走 QtWebEngine 相关路径，不适合 no-Qt 镜像；公共 PDF
+  输出改用 WeasyPrint。
 - MOBI 输出中 SVG rasterizer 依赖 Qt；standalone 包中需要禁用这条路径。
 - MOBI 读写和图片处理部分原本会导入 `calibre.utils.img`，该模块依赖 Qt native
   image 插件；standalone 包需要切换到 Pillow fallback。
@@ -49,7 +50,9 @@ runtime bundle：
 
 - 输入：`azw`、`azw3`、`docx`、`epub`、`mobi`、`original_epub`、`pdf`、`prc`、
   `txt`、`zip`
-- 输出：`epub`、`mobi`、`pdf`、`txt`
+- 轻量输出：`azw3`、`epub`、`mobi`、`txt`
+- 公共 PDF 输出：`ebook-convert INPUT.pdf-or-ebook OUTPUT.pdf` 由路由层交给
+  `ebook-convert-pdf`/WeasyPrint，不进入轻量输出插件集合
 
 入口层会拒绝其它扩展或输出格式，返回码为 `2`。例如 `doc`、`ebk3`、`png`、`wps`
 仍不会进入转换管线。
@@ -73,14 +76,18 @@ runtime bundle：
   `PyQt6`。
 - 在调用 calibre 原始 conversion CLI 之前分开校验输入/输出扩展；输入允许
   `azw/azw3/docx/epub/mobi/original_epub/pdf/prc/txt/zip`，输出允许
-  `epub/mobi/pdf/txt`。
+  `azw3/epub/mobi/txt`。
+
+镜像公开的 `/usr/bin/ebook-convert` 先由 `ebook_convert_router.py` 检查输出扩展：
+`.pdf` 调用 `weasy_pdf_binary.py`，其它格式调用 `standalone_binary.py`。因此 PDF 是
+公共命令能力，但不是轻量 Calibre 输出插件能力。
 
 ### 插件剪裁
 
 `src/calibre/customize/standalone_builtins.py` 定义 standalone 内置插件集合，只保留：
 
 - EPUB/MOBI/PDF/TXT/DOCX 的 metadata reader，EPUB/MOBI/PDF 的 metadata writer。
-- EPUB/MOBI/PDF/TXT/DOCX 输入插件，EPUB/MOBI/PDF/TXT 输出插件。
+- EPUB/MOBI/PDF/TXT/DOCX 输入插件，EPUB/MOBI/TXT 输出插件。
 - 内部转换需要的 `HTMLInput`、`OEBOutput`。
 - input/output profile。
 
@@ -92,25 +99,14 @@ device 插件。
 
 ### PDF 输出
 
-`src/calibre/ebooks/conversion/plugins/standalone_pdf_output.py` 提供一个小型 PDF 输出插件。
+`standalone_pdf_output.py` 已删除：上层 Talebook 从未直接调用这个轻量插件，而且公共
+`ebook-convert` 早已把 `.pdf` 输出分流到 `weasy_pdf_binary.py`。保留两套 PDF 实现只会
+扩大维护面并让测试结果混淆。
 
-它不使用 QtWebEngine，也不追求像素级 HTML/CSS 还原。文本书的实现方式是从 OEB
-spine 中提取文本，按页面尺寸和字体大小保守换行，然后直接写出一个简单 PDF。包内携带
-一个 standalone CJK 字体，PDF 以 `CIDFontType2`/`Identity-H` 嵌入该字体，正文以
-UTF-16BE hex string 写入，并带 ToUnicode CMap，用于显示和抽取中文等非 Latin-1
-文本。
-
-对于扫描版/图片页书籍，如果 spine 中几乎没有可抽文本但包含大量图片，standalone PDF
-输出会把图片按阅读顺序写成每图一页的 PDF image XObject。这用于覆盖 `PRC/2042`
-这类原版输出也是图片页 PDF、`pdftotext` 抽不到正文的样本。
-
-这个选择的取舍是：
-
-- 优点：无 Qt/PyQt 依赖，中文文本可显示和抽取，扫描页书籍不会退化成一页标题。
-- 代价：复杂 HTML/CSS 视觉效果不会完整保留。
-
-入口校验假设调用形态和 calibre CLI 一致：输入文件和输出文件位于命令行前两个位置，
-即 `ebook-convert INPUT OUTPUT [options...]`。
+当前 PDF 流程是 Calibre 输入插件先把源书规范化为 OEB，`weasy_pdf_binary.py` 再按
+spine 合并 XHTML、修正资源 URL、加载 CSS 与 CJK 字体，最后调用 WeasyPrint 写出
+PDF。入口调用形态仍与 Calibre CLI 一致：
+`ebook-convert INPUT OUTPUT.pdf [options...]`。
 
 ### PDF 输入
 
@@ -178,6 +174,20 @@ Linux 脚本中特别排除了 Debian 中依赖 Qt 的 native 插件，例如 `i
 `setup/standalone_build_common.py` 中维护，平台差异项（CJK 字体候选、资源保留清单等）
 留在各自脚本内。
 
+### Talebook Debian 系统运行时
+
+镜像构建使用两层取材：
+
+1. `packaging/extract-debian-packages.sh` 从 apt 下载缓存逐个读取包名，跳过
+   `libqt*`、`qt*`、`pyqt*` 和 `python3-pyqt*`，仅用 `dpkg-deb -x` 解包其它包。
+2. `packaging/build-system-runtime-from-debian.sh` 调用现有白名单/ELF 闭包构建器生成
+   临时组合包，再把需要的代码、资源、helper 和 `.so` 投放到最终系统路径；临时包中的
+   Python 解释器和标准库不会进入最终镜像。
+
+最终层重新基于 `debian:13-slim`，通过 apt 安装系统 Python、pip 及 Talebook 服务
+依赖，再复制上述裁剪结果。`PIP_BREAK_SYSTEM_PACKAGES=1` 保持旧 Talebook 镜像的
+`pip install -r` 行为。
+
 ### 正式构建（bypy 集成）
 
 正式 release 使用 bypy 集成命令，flavor 通过 `CALIBRE_LINUX_BINARY_FLAVOR` /
@@ -200,7 +210,7 @@ bypy 平台脚本（`bypy/linux/__main__.py`、`bypy/macos/__main__.py`）共享
 - 禁止 GUI、server、device、scraper 等 calibre 代码面进入包。
 - 禁止额外 calibre command 暴露。
 - 校验归档安全，拒绝绝对路径、`..` 路径、危险 symlink。
-- 运行 `epub/mobi/pdf/txt` 互转矩阵。
+- 运行 `epub/mobi/txt` 轻量互转矩阵，并确认直接轻量 PDF 输出被拒绝。
 - 验证 unsupported `docx` 和 recipe 能力被拒绝。
 
 `setup/standalone_ebook_convert_sample_matrix.py` 用真实样本目录做矩阵验证：
@@ -209,16 +219,12 @@ bypy 平台脚本（`bypy/linux/__main__.py`、`bypy/macos/__main__.py`）共享
 - `azw3 -> epub`
 - `docx -> epub`
 - `epub -> mobi`
-- `epub -> pdf`
 - `mobi -> epub`
-- `mobi -> pdf`
 - `original_epub -> epub`
 - `pdf -> txt`
 - `prc -> epub`
 - `txt -> epub`
-- `txt -> pdf`
 - `zip -> epub`
-- 所有 PDF 输出都会用 `pdftotext` 抽取正文，校验中文字符数量和 `?` 占位比例。
 - `doc`、`ebk3`、`png`、`wps` 等原版也无法在该样本集中成功转换的格式预期被
   standalone 入口拒绝，返回码 `2`，且不生成输出。
 
@@ -231,7 +237,7 @@ reference `ebook-convert`：
 - 比较正文长度比例、CJK 字符数量比例、相似度和文本 hash。
 - 同时记录双方返回码、输出大小、首条日志，便于区分 standalone 缺口和 reference 环境问题。
 
-## Debian 容器验证记录
+## Debian 容器验证记录（历史独立包）
 
 验证容器：
 
@@ -391,7 +397,7 @@ sha256: 8ec0253272a9ca7a56323cebbd7f694b471884697bbe4cf1b7b884ca63ac41ce
 /out/linux-sample-matrix/sample-results.tsv
 ```
 
-## macOS 本地验证记录
+## macOS 本地验证记录（历史独立包）
 
 macOS 本地开发包产物：
 
@@ -405,36 +411,34 @@ sha256: 6c252fdcaa9ad6ced6b06d938f5577704cd42ffb2eaa2a524e5fc4b4f3d0bd40
 
 - 包结构和归档安全。
 - 无 Qt/PyQt/`libQt` 依赖。
-- `epub/mobi/pdf/txt` 互转 smoke。
+- 当时的 `epub/mobi/pdf/txt` 互转 smoke；其中轻量 PDF 输出实现现已删除。
 - 真实 PDF 样本转换，使用 `pdftohtml` 路径修复中文 PDF 问题。
 - Debian 容器内对 macOS tgz 做归档 surface 校验。
 
 ## 当前限制和后续方向
 
-当前实现是一个可验证的 no-Qt standalone `ebook-convert` 子集，不是完整 calibre 的替代品。
+当前实现是一个可验证的 no-Qt `ebook-convert`/`calibredb` 子集，不是完整 calibre 的替代品。
 
 已知限制：
 
-- 输出格式仍只支持 `epub/mobi/pdf/txt`。输入格式按当前样本验证扩展到
+- 轻量输出格式只支持 `azw3/epub/mobi/txt`，公共 PDF 由 WeasyPrint 路由提供。输入格式按当前样本验证扩展到
   `azw/azw3/docx/epub/mobi/original_epub/pdf/prc/txt/zip`，但仍不是完整 calibre
   的全部输入插件集合。
-- PDF 输出是轻量 PDF，保留 Unicode/CJK 文本；扫描页书籍会输出图片页 PDF。但它仍
-  不保证复杂 HTML/CSS 视觉排版与 QtWebEngine 原版逐像素一致。当前实现为文本 PDF
-  嵌入完整 standalone CJK 字体，因此 PDF 输出文件会比纯文本内容大。
+- WeasyPrint PDF 不保证与 QtWebEngine 原版逐像素一致；扫描版/纯图片书籍需要继续用
+  公共 PDF smoke 和样本矩阵守住行为。
 - MOBI 输出中的 SVG rasterizer 被禁用，SVG 不保证转换为位图。
 - 通过 MOBI 中转做 `epub -> epub` 回环不能视为无损：嵌入字体、CSS 背景装饰图、
   透明度和布局都可能丢失。这是 MOBI 中间格式的固有限制，不是 standalone 特有问题。
 - standalone 额外缺少 Qt SVG rasterizer；正文或封面里的 SVG 不会被栅格化为位图。
 - 大书转换耗时明显。28MB、1415 章样本的 `epub -> mobi -> epub` 回环实测接近
   24 分钟，其中 `mobi -> epub` 的章节切分阶段最慢。
-- Linux 本地验证脚本基于 Debian calibre 8.5 布局，适合作为验证和交付取样；正式 release
-  仍应优先走 bypy 集成命令。
+- Linux 取材脚本基于 Debian calibre 8.5 布局，覆盖当前源文件时仍需做 API 兼容检查。
 - 产物没有提交进 git；仓库只保存构建脚本、代码和验证工具。
 
 后续可以考虑：
 
 - 如果需要支持更多输入或输出格式，需要逐项确认插件依赖不会把 Qt 或 GUI surface 带回包中。
-- 如果需要高保真 PDF 输出，需要引入一个非 Qt 的 HTML-to-PDF 引擎，并重新评估体积。
+- 如果需要更高保真 PDF 输出，应继续改进现有 WeasyPrint 路径并重新评估体积。
 - 如果需要更小的 Linux 包，可以继续缩减 Python stdlib、字体资源和动态库 allowlist。
 - 如果要发布多架构 Linux 包，应使用 bypy Linux 构建路径验证 x86_64 和 arm64，而不是只依赖
   当前 Debian arm64 容器。

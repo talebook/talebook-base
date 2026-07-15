@@ -20,7 +20,7 @@ from calibre.utils.logging import Log
 
 from calibre.ebooks.conversion.cli import main as ebook_convert_main
 
-SUPPORTED_OUTPUT_FORMATS = frozenset({'azw3', 'epub', 'mobi', 'pdf', 'txt'})
+SUPPORTED_OUTPUT_FORMATS = frozenset({'azw3', 'epub', 'mobi', 'txt'})
 
 
 def conversion_paths(args):

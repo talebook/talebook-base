@@ -12,12 +12,11 @@
 # ----------------------------------------
 
 # ----------------------------------------
-# 第一阶段：组装共享 Calibre runtime。这里沿用 standalone packager 的旧链路：
-# 以 Debian calibre 包为底座裁剪，不从当前源码全量编译 calibre/native plugins。
-FROM debian:13-slim AS runtime-build
+# 第一阶段只下载 Debian 包，不执行 dpkg/apt 安装。完整依赖闭包仅作为取材池，
+# Qt/PyQt 包不会被解压。
+FROM debian:13-slim AS deb-packages
 ARG BUILD_COUNTRY=""
 ENV DEBIAN_FRONTEND=noninteractive
-ENV TALEBOOK_CALIBRE_PRIVATE_RUNTIME=/usr/lib/talebook-calibre-runtime
 
 RUN mkdir -p /var/lib/apt/lists/partial && \
     chmod -R 0755 /var/lib/apt/lists/ && \
@@ -27,7 +26,7 @@ RUN mkdir -p /var/lib/apt/lists/partial && \
     fi
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y --download-only --no-install-recommends \
         binutils \
         ca-certificates \
         calibre \
@@ -37,23 +36,38 @@ RUN apt-get update && \
         python3-pyphen \
         poppler-utils \
         tar \
-        weasyprint && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+        weasyprint
+
+COPY --chmod=0755 packaging/extract-debian-packages.sh /usr/local/bin/extract-debian-packages
+RUN /usr/local/bin/extract-debian-packages /var/cache/apt/archives /opt/debian-root
+
+
+# 第二阶段把解包树作为临时 Debian root，执行白名单裁剪、源码覆盖、ELF 依赖闭包
+# 收集和无 Qt 校验。输出使用最终系统路径，不携带私有 Python。
+FROM debian:13-slim AS runtime-build
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CALIBRE_STANDALONE_CODE_ROOT=/usr/lib/calibre
+ENV CALIBRE_STANDALONE_RESOURCE_ROOT=/usr/share/calibre
+ENV CALIBRE_STANDALONE_PLUGIN_ROOT=/usr/lib/calibre/calibre/plugins
+ENV CALIBRE_STANDALONE_PYTHON_PACKAGE_ROOTS=/usr/lib/python3/dist-packages
+
+COPY --from=deb-packages /opt/debian-root/ /
+RUN ldconfig
 
 WORKDIR /src/calibre
 COPY setup/ setup/
 COPY src/ src/
 COPY resources/ resources/
-COPY --chmod=0755 packaging/build-runtime-from-debian.sh packaging/build-runtime-from-debian.sh
+COPY --chmod=0755 packaging/build-system-runtime-from-debian.sh packaging/build-system-runtime-from-debian.sh
 
-RUN packaging/build-runtime-from-debian.sh "${TALEBOOK_CALIBRE_PRIVATE_RUNTIME}" && \
+RUN packaging/build-system-runtime-from-debian.sh /opt/talebook-system-root && \
     rm -rf /src/calibre
 
 
 # ----------------------------------------
-# 第二阶段：最终基础镜像。只装运行期依赖，禁止安装完整 calibre / PyQt / Qt runtime。
-FROM python:3.13-slim-trixie AS base
+# 最终基础镜像使用 Debian Python。下游 Talebook 仍可通过 pip 安装 requirements，
+# 但最终镜像禁止安装完整 calibre / PyQt / Qt runtime。
+FROM debian:13-slim AS base
 ARG BUILD_COUNTRY=""
 ARG TARGETARCH
 ARG TARGETVARIANT
@@ -62,13 +76,16 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV CALIBRE_STANDALONE_CONVERTER=1
 ENV CALIBRE_STANDALONE_FORBID_QT=1
-ENV TALEBOOK_CALIBRE_PRIVATE_RUNTIME=/usr/lib/talebook-calibre-runtime
 ENV TALEBOOK_CALIBRE_RUNTIME=/usr/lib/calibre
 ENV TALEBOOK_CALIBRE_RESOURCES=/usr/share/calibre
 ENV TALEBOOK_CALIBRE_PLUGINS=/usr/lib/calibre/calibre/plugins
-ENV TALEBOOK_CALIBRE_BIN=/usr/bin
+ENV TALEBOOK_CALIBRE_BIN=/usr/lib/talebook-calibre/bin
+ENV TALEBOOK_CALIBRE_LIB=/usr/lib/talebook-calibre/lib
 ENV PYTHONPATH=/usr/lib/calibre
-ENV LD_LIBRARY_PATH=/usr/lib/talebook-calibre-runtime/lib
+ENV LD_LIBRARY_PATH=/usr/lib/talebook-calibre/lib
+ENV PATH=/usr/lib/talebook-calibre/bin:${PATH}
+ENV FONTCONFIG_PATH=/etc/talebook-calibre/fonts
+ENV FONTCONFIG_FILE=/etc/talebook-calibre/fonts/fonts.conf
 
 RUN mkdir -p /var/lib/apt/lists/partial && \
     chmod -R 0755 /var/lib/apt/lists/ && \
@@ -86,20 +103,33 @@ RUN apt-get update && \
         libstemmer0d \
         nginx \
         procps \
+        python3 \
         python3-apsw \
+        python3-dev \
+        python3-pip \
+        python3-setuptools \
+        python3-venv \
         python3-xxhash \
         sqlite3 \
         supervisor \
-        tzdata && \
+        tzdata \
+        build-essential && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=runtime-build /usr/lib/talebook-calibre-runtime/ /usr/lib/talebook-calibre-runtime/
-COPY --chmod=0644 packaging/entrypoints/*.py /usr/lib/talebook-calibre-runtime/lib/python/
+COPY --from=runtime-build /opt/talebook-system-root/ /
 COPY --chmod=0755 packaging/entrypoints/ebook-convert packaging/entrypoints/ebook-convert-pdf packaging/entrypoints/calibredb /usr/bin/
-COPY --chmod=0755 packaging/install-runtime.sh /usr/local/sbin/install-talebook-calibre-runtime
+COPY --chmod=0644 packaging/entrypoints/*.py /usr/lib/calibre/
 
-RUN /usr/local/sbin/install-talebook-calibre-runtime
+RUN python3 -c "import apsw, xxhash; assert apsw and xxhash" && \
+    python3 -m pip --version && \
+    test ! -e /usr/lib/talebook-calibre-runtime && \
+    test -f /usr/lib/calibre/calibre/__init__.py && \
+    test -x /usr/lib/talebook-calibre/bin/pdftotext && \
+    if find /usr/lib/calibre /usr/lib/talebook-calibre \( -name 'PyQt6' -o -name 'qt' -o -name 'libQt*' -o -name 'Qt*' \) -print -quit | grep -q .; then \
+        echo "runtime contains Qt artifacts" >&2; \
+        exit 1; \
+    fi
 
 # Create a talebook user and change the Nginx startup user if it doesn't exist
 RUN if ! id -u talebook > /dev/null 2>&1; then \

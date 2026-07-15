@@ -1,9 +1,8 @@
 #!/bin/sh
 set -eu
-RUNTIME="${TALEBOOK_CALIBRE_PRIVATE_RUNTIME:-/usr/lib/talebook-calibre-runtime}"
-export PYTHONHOME="$RUNTIME"
-export PYTHONPATH="$RUNTIME/lib/python/site-packages"
-export LD_LIBRARY_PATH="$RUNTIME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PYTHONPATH="${TALEBOOK_CALIBRE_RUNTIME:-/usr/lib/calibre}"
+export LD_LIBRARY_PATH="${TALEBOOK_CALIBRE_LIB:-/usr/lib/talebook-calibre/lib}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PATH="${TALEBOOK_CALIBRE_BIN:-/usr/lib/talebook-calibre/bin}:$PATH"
 export CALIBRE_STANDALONE_CONVERTER=1
 export CALIBRE_STANDALONE_FORBID_QT=1
-exec "$RUNTIME/bin/python3" "$RUNTIME/lib/python/run_calibredb.py" "$@"
+exec /usr/bin/python3 /usr/lib/calibre/run_calibredb.py "$@"

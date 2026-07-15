@@ -379,7 +379,7 @@
       <p class="subtitle">talebook-base 的无 Qt 运行时不是重新实现 Calibre，也不是让上游所有代码都摆脱 Qt；它用多阶段构建、白名单抽取、依赖替换和强制校验，保留 Talebook 真正需要的转换与书库能力。</p>
       <div class="meta">
         <span>BRANCH · only-ebook-convert</span>
-        <span>SNAPSHOT · 3d49cd7186 + CURRENT WORKTREE</span>
+        <span>SNAPSHOT · 9db485c + SYSTEM-PYTHON WORKTREE</span>
         <span>UPDATED · 2026-07-15</span>
         <span>FORMAT · SELF-CONTAINED HTML</span>
       </div>
@@ -387,7 +387,7 @@
 
     <aside class="tldr">
       <h2>TL;DR</h2>
-      <p><strong>完整 Calibre 与 Qt 只作为构建原料出现。</strong>构建器从 Debian Calibre 中挑出 CLI 转换、数据库、资源和少量原生插件，覆盖无 Qt 的适配代码，递归收集真正需要的 ELF 动态库，再把这棵私有运行时复制进干净的最终镜像。PDF 生成改走 WeasyPrint，图像处理改走 Pillow，PDF 输入使用 Poppler；Qt 文件、Qt 动态链接和运行时 Qt 导入则分别在构建与测试阶段被拒绝。</p>
+      <p><strong>Calibre 与 Qt 的 Debian 包只作为下载取材池出现。</strong>构建阶段不执行 Calibre/Qt 安装：它用 <code>apt --download-only</code> 获取依赖闭包，以 <code>dpkg-deb -x</code> 解包非 Qt 包，再挑出 CLI 转换、数据库、资源和少量原生插件。最终镜像直接使用 Debian 系统 Python，PDF 生成走 WeasyPrint，图像处理走 Pillow，PDF 输入使用 Poppler；私有解释器、Qt 文件、Qt 动态链接与运行时 Qt 导入均被拒绝。</p>
     </aside>
 
     <section id="principle">
@@ -402,7 +402,7 @@
       <figure data-zoomable tabindex="0" aria-label="构建阶段到最终镜像的抽取流程图">
         <svg viewBox="0 0 840 410" role="img" aria-labelledby="fig1-title fig1-desc">
           <title id="fig1-title">多阶段抽取架构</title>
-          <desc id="fig1-desc">完整 Debian Calibre 在构建阶段被白名单裁剪、覆盖和依赖闭包收集，最终只有无 Qt 私有运行时进入最终镜像。</desc>
+          <desc id="fig1-desc">Debian 包在下载阶段形成取材池，Qt 包不解包；白名单裁剪与依赖闭包收集后，代码和动态库进入使用系统 Python 的最终镜像。</desc>
           <defs>
             <marker id="arrow1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#6f9bb8"/>
@@ -416,9 +416,9 @@
           <text x="30" y="34" font-family="monospace" font-size="12" fill="#7a7a7a">STAGE A · BUILD INPUT</text>
           <rect x="30" y="55" width="220" height="225" rx="8" fill="#eef4f8" stroke="#6f9bb8" stroke-width="2"/>
           <text x="50" y="86" font-family="sans-serif" font-size="19" font-weight="700" fill="#1a1a1a">Debian 13 构建器</text>
-          <text x="50" y="116" font-family="monospace" font-size="12" fill="#4a4a4a">apt install</text>
-          <text x="50" y="141" font-family="sans-serif" font-size="14" fill="#1a1a1a">完整 calibre</text>
-          <text x="50" y="165" font-family="sans-serif" font-size="14" fill="#a05050">PyQt / Qt / QtWebEngine</text>
+          <text x="50" y="116" font-family="monospace" font-size="12" fill="#4a4a4a">apt --download-only</text>
+          <text x="50" y="141" font-family="sans-serif" font-size="14" fill="#1a1a1a">calibre .deb 取材包</text>
+          <text x="50" y="165" font-family="sans-serif" font-size="14" fill="#a05050">Qt .deb 仅下载、不解包</text>
           <text x="50" y="189" font-family="sans-serif" font-size="14" fill="#1a1a1a">WeasyPrint + Poppler</text>
           <text x="50" y="213" font-family="sans-serif" font-size="14" fill="#1a1a1a">Python + 原生插件</text>
           <line x1="50" y1="232" x2="230" y2="232" stroke="#d8d8d2"/>
@@ -435,14 +435,14 @@
           <text x="320" y="173" font-family="sans-serif" font-size="14" fill="#1a1a1a">③ 覆盖 no-Qt 适配代码</text>
           <text x="320" y="200" font-family="sans-serif" font-size="14" fill="#1a1a1a">④ 收集 ELF 依赖闭包</text>
           <text x="320" y="227" font-family="sans-serif" font-size="14" fill="#1a1a1a">⑤ 检查 Qt 文件与 DT_NEEDED</text>
-          <text x="320" y="257" font-family="monospace" font-size="11" fill="#7a7a7a">/usr/lib/talebook-calibre-runtime</text>
+          <text x="320" y="257" font-family="monospace" font-size="11" fill="#7a7a7a">system-root layout · no interpreter</text>
 
           <line x1="545" y1="166" x2="590" y2="166" stroke="#6f9bb8" stroke-width="3" marker-end="url(#arrow1)"/>
           <text x="567" y="150" text-anchor="middle" font-family="monospace" font-size="10" fill="#6f9bb8">COPY</text>
 
           <text x="590" y="34" font-family="monospace" font-size="12" fill="#7a7a7a">STAGE C · FINAL IMAGE</text>
           <rect x="590" y="55" width="220" height="225" rx="8" fill="#e7ebe3" stroke="#6b7560" stroke-width="2"/>
-          <text x="610" y="86" font-family="sans-serif" font-size="19" font-weight="700" fill="#1a1a1a">Python slim 镜像</text>
+          <text x="610" y="86" font-family="sans-serif" font-size="19" font-weight="700" fill="#1a1a1a">Debian 13 slim</text>
           <text x="610" y="120" font-family="monospace" font-size="12" fill="#4a4a4a">public commands</text>
           <text x="610" y="146" font-family="sans-serif" font-size="14" fill="#1a1a1a">ebook-convert</text>
           <text x="610" y="171" font-family="sans-serif" font-size="14" fill="#1a1a1a">ebook-convert-pdf</text>
@@ -453,23 +453,23 @@
 
           <path d="M140 286 C140 336 300 355 420 355 C540 355 700 337 700 286" fill="none" stroke="#a05050" stroke-width="2" stroke-dasharray="7 6"/>
           <rect x="290" y="326" width="260" height="50" rx="25" fill="#f4e4e4" stroke="#a05050"/>
-          <text x="420" y="347" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="700" fill="#a05050">Qt 随 runtime-build stage 一起丢弃</text>
-          <text x="420" y="365" text-anchor="middle" font-family="monospace" font-size="10" fill="#7a7a7a">never copied into the final filesystem</text>
+          <text x="420" y="347" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="700" fill="#a05050">Qt 包不解包，私有 Python 不跨阶段</text>
+          <text x="420" y="365" text-anchor="middle" font-family="monospace" font-size="10" fill="#7a7a7a">only selected files enter the final filesystem</text>
         </svg>
-        <figcaption>FIG 1 · 多阶段镜像是物理隔离边界。构建阶段可以安装完整 Debian Calibre；最终阶段只接收裁剪后的私有运行时目录。点击图表可放大。</figcaption>
+        <figcaption>FIG 1 · 多阶段镜像是物理隔离边界。构建阶段只下载并选择性解包 Debian 包；最终阶段接收系统路径布局并使用 Debian Python。点击图表可放大。</figcaption>
       </figure>
     </section>
 
     <section id="stages">
-      <h2 class="section-title"><span class="num">02</span><span>构建期有 Qt，运行期为什么能没有</span></h2>
-      <p><code>Dockerfile.base</code> 的第一阶段基于 <code>debian:13-slim</code>，通过 apt 安装完整 <code>calibre</code>、<code>weasyprint</code> 与 <code>poppler-utils</code>。这一步接受 Debian 包已经解决好的 Python 与原生库关系，把它们当成可靠的“零件仓库”。</p>
-      <p>随后 <code>packaging/build-runtime-from-debian.sh</code> 调用组合构建器，输出唯一一棵共享运行时。第二阶段重新从 <code>python:3.13-slim-trixie</code> 开始，只复制这棵目录；Docker 不会把前一阶段未被复制的 apt 包和文件层带进最终镜像。</p>
+      <h2 class="section-title"><span class="num">02</span><span>构建期下载 Qt，运行期为什么能没有</span></h2>
+      <p><code>Dockerfile.base</code> 的第一阶段基于 <code>debian:13-slim</code>，通过 apt 的 <code>--download-only</code> 模式获取 <code>calibre</code>、<code>weasyprint</code> 与 <code>poppler-utils</code> 的依赖闭包。apt 会下载 Qt 依赖，但不会运行 dpkg 安装脚本；<code>extract-debian-packages.sh</code> 随后按包名跳过 Qt/PyQt，只解开其它 <code>.deb</code>。</p>
+      <p><code>packaging/build-system-runtime-from-debian.sh</code> 再调用白名单与 ELF 闭包构建器，并把结果转换成最终系统路径。最后一阶段仍从 <code>debian:13-slim</code> 开始，通过 apt 安装系统 <code>python3</code>/<code>python3-pip</code> 和服务依赖，再复制裁剪后的代码、资源、helper 与原生库；没有私有 Python 解释器。</p>
 
       <div class="cards">
         <article class="card">
           <span class="tag">BUILD-TIME</span>
-          <h3>用完整包解决“从哪里取”</h3>
-          <p>借 Debian Calibre 提供稳定的模块、资源、原生插件和依赖定位，不在镜像构建中重新编译整套 Calibre。</p>
+          <h3>用 Debian 包解决“从哪里取”</h3>
+          <p>借 Debian Calibre 提供稳定的模块、资源、原生插件和依赖定位；只下载和解包，不把完整 Calibre 安装进构建 root。</p>
         </article>
         <article class="card">
           <span class="tag">RUN-TIME</span>
@@ -484,14 +484,17 @@
       </div>
 
       <pre><code># Dockerfile.base 的关键边界（概念化）
-FROM debian:13-slim AS runtime-build
-RUN apt-get install calibre weasyprint poppler-utils
-RUN build-runtime-from-debian.sh /usr/lib/talebook-calibre-runtime
+FROM debian:13-slim AS deb-packages
+RUN apt-get install --download-only calibre weasyprint poppler-utils
+RUN extract-debian-packages /var/cache/apt/archives /opt/debian-root
 
-FROM python:3.13-slim-trixie AS base
-# 只跨阶段复制经过验证的结果
-COPY --from=runtime-build /usr/lib/talebook-calibre-runtime/ \
-  /usr/lib/talebook-calibre-runtime/</code></pre>
+FROM debian:13-slim AS runtime-build
+COPY --from=deb-packages /opt/debian-root/ /
+RUN build-system-runtime-from-debian.sh /opt/talebook-system-root
+
+FROM debian:13-slim AS base
+RUN apt-get install python3 python3-pip ...
+COPY --from=runtime-build /opt/talebook-system-root/ /</code></pre>
     </section>
 
     <section id="slice">
@@ -503,9 +506,9 @@ COPY --from=runtime-build /usr/lib/talebook-calibre-runtime/ \
           <thead><tr><th>维度</th><th>保留</th><th>明确移除 / 拒绝</th></tr></thead>
           <tbody>
             <tr><td>输入格式</td><td>AZW、AZW3、DOCX、EPUB、MOBI、original_epub、PDF、PRC、TXT、ZIP</td><td>开放目录、recipe 与未列入白名单的格式</td></tr>
-            <tr><td>轻量输出</td><td>AZW3、EPUB、MOBI、PDF、TXT</td><td>其余 Calibre 输出插件</td></tr>
+            <tr><td>轻量输出</td><td>AZW3、EPUB、MOBI、TXT；PDF 由公共入口分流到 WeasyPrint</td><td>Calibre PDF 输出插件与其余输出插件</td></tr>
             <tr><td>Calibre 子系统</td><td>转换核心、元数据、OEB、书库数据库、必要资源</td><td>AI、devices、GUI、headless、scraper、server、web</td></tr>
-            <tr><td>Python 包</td><td>Pillow、lxml、BeautifulSoup、CSS/HTML 解析等白名单</td><td>PyQt6、qt、ImageQt、pip、无关依赖</td></tr>
+            <tr><td>Python 包</td><td>系统 Python/pip；Pillow、lxml、BeautifulSoup、CSS/HTML 解析等白名单</td><td>PyQt6、qt、ImageQt 与无关依赖</td></tr>
             <tr><td>原生插件</td><td>ICU、freetype、podofo、speedup、SQLite 扩展等 14 个白名单插件</td><td>未显式列出的 Calibre 原生插件</td></tr>
             <tr><td>辅助程序</td><td>pdftohtml、pdfinfo、pdftoppm、pdftotext</td><td>GUI 程序与无关命令</td></tr>
           </tbody>
@@ -513,7 +516,7 @@ COPY --from=runtime-build /usr/lib/talebook-calibre-runtime/ \
       </div>
 
       <p><code>src/calibre/customize/standalone_builtins.py</code> 不再加载 Calibre 的全量内建插件注册表，而是显式构造输入、输出和元数据插件列表。这样做同时解决两个问题：功能范围变得可审计；被移除插件的模块也不会因为自动发现而偷偷拉回 Qt。</p>
-      <p><code>calibredb</code> 是单独保留的能力。最终镜像安装系统的 <code>python3-apsw</code> 与 <code>python3-xxhash</code>，再把模块复制进私有 Python 运行时，使 Calibre 的数据库 CLI 和 Talebook 书库访问仍能工作，而不必带上桌面 GUI。</p>
+      <p><code>calibredb</code> 是单独保留的能力。最终镜像直接安装系统的 <code>python3-apsw</code> 与 <code>python3-xxhash</code>，由同一个 Debian Python 解释器加载 Calibre 代码和数据库扩展，使 Talebook 书库访问仍能工作，而不必带上桌面 GUI。</p>
     </section>
 
     <section id="defenses">
@@ -571,7 +574,7 @@ COPY --from=runtime-build /usr/lib/talebook-calibre-runtime/ \
       <p>Python 目录里看不到 Qt 并不等于原生扩展没有 Qt。构建器从 Python 解释器、辅助程序、Calibre 插件和 WeasyPrint 原生栈出发执行 <code>ldd</code>，递归复制共享库；随后 <code>validate_no_qt_dependencies()</code> 对每个 ELF 再扫描一次，任何 Qt soname 都会失败。</p>
 
       <h3>4.5 运行结果层</h3>
-      <p>最终 smoke test 不只检查“文件不存在”，还实际创建 Calibre 书库、运行 <code>calibredb list</code>，把 EPUB 转为 MOBI、AZW3、PDF，把包含中文和 emoji 的 TXT 转为 PDF，并用私有运行时的 <code>pdftotext</code> 回读中文。这可以发现“删得很干净，但功能已经坏了”的假成功。</p>
+      <p>最终 smoke test 不只检查“文件不存在”，还实际创建 Calibre 书库、运行 <code>calibredb list</code>，把 EPUB 转为 MOBI、AZW3、PDF，把包含中文和 emoji 的 TXT 转为 PDF，并用裁剪到 <code>/usr/lib/talebook-calibre/bin</code> 的 <code>pdftotext</code> 回读中文。这可以发现“删得很干净，但功能已经坏了”的假成功。</p>
     </section>
 
     <section id="routing">
@@ -630,8 +633,8 @@ COPY --from=runtime-build /usr/lib/talebook-calibre-runtime/ \
       <h3>为什么 PDF 要单独分流</h3>
       <p>上游 Calibre 的完整 PDF 输出依赖更重的排版与 QtWebEngine 路径。项目保留 Calibre 的输入插件，把电子书先规范化为 OEB；<code>weasy_pdf_binary.py</code> 再按 spine 合并 XHTML、修正相对资源 URL、加载 CSS 与 CJK 字体，最后交给 WeasyPrint 生成 PDF。这样保留了 Calibre 对多种输入格式的理解，同时避开浏览器式 Qt 渲染器。</p>
 
-      <h3>为什么仍有一个轻量 PDF 插件</h3>
-      <p><code>standalone_pdf_output.py</code> 提供一个极小、无 Qt 的 PDF 输出插件，重点保证文字、CJK 字体、非 BMP 字符的 ToUnicode 映射和纯图片书籍的基本输出。但公共 <code>ebook-convert</code> 遇到 <code>.pdf</code> 时默认分流到 WeasyPrint，以获得更完整的 HTML/CSS 排版。前者是最小闭包能力，后者是产品默认路径。</p>
+      <h3>为什么删除轻量 PDF 插件</h3>
+      <p>上层 Talebook 没有调用 <code>standalone_pdf_output.py</code>，公共 <code>ebook-convert</code> 也始终把 <code>.pdf</code> 交给 WeasyPrint。继续保留第二套 PDF 输出只会扩大插件面、代码量和测试歧义，因此它已从源码覆盖、插件注册、轻量格式集合与样本矩阵中一并删除。</p>
     </section>
 
     <section id="replacement">
@@ -657,39 +660,35 @@ COPY --from=runtime-build /usr/lib/talebook-calibre-runtime/ \
     </section>
 
     <section id="layout">
-      <h2 class="section-title"><span class="num">07</span><span>私有运行时与兼容路径契约</span></h2>
-      <p>裁剪结果安装在独立路径 <code>/usr/lib/talebook-calibre-runtime</code>，避免与系统 Python 或未来的 Debian Calibre 包混淆。三个公开入口只负责设置隔离环境，再用私有解释器启动实际程序。</p>
+      <h2 class="section-title"><span class="num">07</span><span>系统 Python 与运行时路径契约</span></h2>
+      <p>三个公开入口统一调用 <code>/usr/bin/python3</code>，不设置 <code>PYTHONHOME</code>，也不存在 <code>/usr/lib/talebook-calibre-runtime</code>。Calibre 与裁剪后的原生依赖使用明确的系统路径，避免复制 Python 标准库，同时保留 Talebook 依赖的历史 Calibre 路径。</p>
 
-      <pre class="tree"><code>/usr/lib/talebook-calibre-runtime/
-├── bin/python3                 # 私有 Python 解释器
-├── bin/pdftohtml              # Poppler 辅助程序
-├── bin/pdfinfo
-├── bin/pdftoppm
-├── bin/pdftotext
-├── lib/                        # 收集后的原生动态库
-├── lib/python/site-packages/   # 裁剪后的 Calibre + 白名单依赖
-├── resources/                  # 必要资源、模板、数据库 SQL、字体
-├── ebook-convert               # 轻量转换执行器
-└── ebook-convert-pdf           # WeasyPrint PDF 执行器
+      <pre class="tree"><code>/usr/bin/python3                     # Debian 系统解释器
+/usr/bin/ebook-convert              # 公共兼容入口 + 路由
+/usr/bin/ebook-convert-pdf          # 直接 PDF 入口
+/usr/bin/calibredb                  # 数据库 CLI
+/usr/lib/calibre/                   # Calibre + 白名单 Python 包
+/usr/share/calibre/                 # 资源、模板、数据库 SQL、字体
+/usr/lib/talebook-calibre/bin/      # Poppler helpers
+├── pdftohtml
+├── pdfinfo
+├── pdftoppm
+└── pdftotext
+/usr/lib/talebook-calibre/lib/      # 收集后的非 Qt 动态库
+/etc/talebook-calibre/fonts/        # Fontconfig 配置</code></pre>
 
-/usr/bin/ebook-convert          # 公共兼容入口 + 路由
-/usr/bin/ebook-convert-pdf      # 直接 PDF 入口
-/usr/bin/calibredb              # 数据库 CLI
-/usr/lib/calibre -> private runtime/site-packages
-/usr/share/calibre -> private runtime/resources</code></pre>
-
-      <p><code>sitecustomize.py</code> 在私有解释器启动时注入 Calibre 约定的资源、扩展和可执行文件位置；入口脚本再设置 <code>PYTHONHOME</code>、<code>PYTHONPATH</code>、<code>LD_LIBRARY_PATH</code> 与两个 standalone 标志。</p>
+      <p>入口脚本只设置代码、资源、helper 和原生库搜索路径，以及两个 standalone 安全标志。系统 pip 由 Debian 安装，并通过旧 Talebook 已使用的 <code>PIP_BREAK_SYSTEM_PACKAGES=1</code> 保持 <code>pip install -r</code> 能力。</p>
 
       <pre><code>CALIBRE_STANDALONE_CONVERTER=1
 CALIBRE_STANDALONE_FORBID_QT=1
-TALEBOOK_CALIBRE_PRIVATE_RUNTIME=/usr/lib/talebook-calibre-runtime
-PYTHONHOME=/usr/lib/talebook-calibre-runtime
-PYTHONPATH=/usr/lib/talebook-calibre-runtime/lib/python/site-packages
-LD_LIBRARY_PATH=/usr/lib/talebook-calibre-runtime/lib</code></pre>
+PYTHONPATH=/usr/lib/calibre
+LD_LIBRARY_PATH=/usr/lib/talebook-calibre/lib
+PATH=/usr/lib/talebook-calibre/bin:$PATH
+PIP_BREAK_SYSTEM_PACKAGES=1</code></pre>
 
       <div class="callout olive">
         <span class="callout-label">兼容而不污染</span>
-        <p><code>/usr/lib/calibre</code> 和 <code>/usr/share/calibre</code> 仍然存在，但只是指向私有运行时的符号链接。这样既满足 Talebook 与 Calibre 代码的历史路径假设，又保持真正的文件所有权和升级边界集中在一个目录。</p>
+        <p><code>/usr/lib/calibre</code> 和 <code>/usr/share/calibre</code> 现在是真实目录，不是指向私有运行时的符号链接。Calibre 的 Python 代码与系统 Python 解耦，但解释器、标准库、pip、APSW 和 xxhash 都由 Debian 统一管理。</p>
       </div>
     </section>
 
@@ -707,7 +706,7 @@ LD_LIBRARY_PATH=/usr/lib/talebook-calibre-runtime/lib</code></pre>
 
       <div class="callout">
         <span class="callout-label">当前验证口径</span>
-        <p>仓库当前实现已经按上述 smoke 范围在本地 arm64 与交叉构建 amd64 镜像上通过。该结论针对当前工作树；后续修改白名单、Debian Calibre 版本或 PDF 后端时应重新运行完整镜像测试。</p>
+        <p>系统 Python 新方案已在本地 arm64 Docker 镜像完整通过上述 smoke，且 Fontconfig/CJK PDF 回读正常。CI 工作流继续负责独立验证 amd64 与 arm64；后续修改白名单、Debian Calibre 版本或 PDF 后端时应重新运行完整镜像测试。</p>
       </div>
     </section>
 
@@ -750,7 +749,9 @@ LD_LIBRARY_PATH=/usr/lib/talebook-calibre-runtime/lib</code></pre>
         <table>
           <thead><tr><th>文件</th><th>职责</th><th>建议关注点</th></tr></thead>
           <tbody>
-            <tr><td><code>Dockerfile.base</code></td><td>构建/最终镜像边界</td><td>Qt 只在哪一阶段安装，哪些目录跨 stage</td></tr>
+            <tr><td><code>Dockerfile.base</code></td><td>包池/组装/最终镜像边界</td><td>Qt 只下载不解包，哪些系统目录跨 stage</td></tr>
+            <tr><td><code>packaging/extract-debian-packages.sh</code></td><td>Debian 包选择性解包</td><td>Qt/PyQt 包名拒绝规则与取材树断言</td></tr>
+            <tr><td><code>packaging/build-system-runtime-from-debian.sh</code></td><td>系统路径运行时组装</td><td>哪些代码、资源、helper 与 .so 进入最终层</td></tr>
             <tr><td><code>setup/build_standalone_ebook_convert_combined_linux_local.py</code></td><td>组合共享运行时</td><td>基础转换器与 WeasyPrint 栈如何复用一棵 runtime</td></tr>
             <tr><td><code>setup/build_standalone_ebook_convert_linux_local.py</code></td><td>裁剪、覆盖、ELF 依赖收集、验证</td><td>白名单、Debian 文件补丁、no-Qt 检查</td></tr>
             <tr><td><code>src/calibre/customize/standalone_builtins.py</code></td><td>插件能力白名单</td><td>支持的输入/输出/元数据插件</td></tr>
@@ -758,7 +759,7 @@ LD_LIBRARY_PATH=/usr/lib/talebook-calibre-runtime/lib</code></pre>
             <tr><td><code>src/calibre/utils/img_shim.py</code></td><td>Qt/Pillow 图像后端分派</td><td>standalone 标志如何切换实现</td></tr>
             <tr><td><code>src/calibre/ebooks/conversion/weasy_pdf_binary.py</code></td><td>OEB 到 WeasyPrint PDF</td><td>spine、资源 URL、CSS、字体与 image-only 路径</td></tr>
             <tr><td><code>packaging/entrypoints/ebook_convert_router.py</code></td><td>公共 CLI 路由与参数翻译</td><td>PDF 输出如何透明切到专用后端</td></tr>
-            <tr><td><code>packaging/install-runtime.sh</code></td><td>私有运行时安装</td><td>兼容符号链接、APSW/xxhash 与所有权</td></tr>
+            <tr><td><code>packaging/entrypoints/talebook_calibre_env.py</code></td><td>系统 Python 环境注入</td><td>资源、插件、helper 路径与 Qt import guard</td></tr>
             <tr><td><code>packaging/smoke-test.sh</code></td><td>最终镜像验收</td><td>absence 检查与真实能力检查是否同时覆盖</td></tr>
             <tr><td><code>.github/workflows/build-base.yml</code></td><td>双架构 CI 与手动发布</td><td>测试和发布的权限边界</td></tr>
           </tbody>
@@ -782,8 +783,8 @@ docker run --rm talebook/talebook-base:slim-1.0 ebook-convert --version
 docker run --rm talebook/talebook-base:slim-1.0 ebook-convert-pdf --help
 docker run --rm talebook/talebook-base:slim-1.0 calibredb --version
 
-# 4. 对私有 runtime 的 ELF 做额外审计（示意）
-find /usr/lib/talebook-calibre-runtime -type f -exec file {} \; \
+# 4. 对裁剪目录的 ELF 做额外审计（容器内示意）
+find /usr/lib/calibre /usr/lib/talebook-calibre -type f -exec file {} \; \
   | grep ELF</code></pre>
 
       <p>如果某次升级后构建在 <code>patch_debian_*</code>、<code>validate_no_qt*</code> 或 smoke test 处失败，这通常是有价值的信号：Debian Calibre 的代码边界或动态依赖发生了变化，需要重新审查，而不是绕过断言。</p>
@@ -791,13 +792,13 @@ find /usr/lib/talebook-calibre-runtime -type f -exec file {} \; \
 
     <section id="conclusion">
       <h2 class="section-title"><span class="num">12</span><span>结论</span></h2>
-      <p class="lead">talebook-base 能移除 Qt，靠的不是一个神奇 patch，而是一组互相咬合的工程决策：缩小承诺面、从完整发行包抽取最小运行闭包、替换不可避免的渲染能力、隔离私有运行时，并用文件、导入、ELF 和端到端转换共同守住边界。</p>
+      <p class="lead">talebook-base 能移除 Qt，靠的不是一个神奇 patch，而是一组互相咬合的工程决策：缩小承诺面、从 Debian 包抽取最小运行闭包、替换不可避免的渲染能力、复用系统 Python，并用文件、导入、ELF 和端到端转换共同守住边界。</p>
       <p>这套设计最值得复用的经验是：面对一个“看起来处处依赖 GUI 框架”的大型应用，不必从源码层追求全局纯化。先找到服务端真正需要的纵向能力切片，把自动发现改成白名单，把重依赖从可达路径上移走，再让构建系统证明最终产物只含预期闭包。</p>
     </section>
 
     <footer>
       <p>DOCUMENT BASIS · Repository files in the current talebook-base workspace. No external assets, fonts, scripts, or network references are used by this HTML.</p>
-      <p>KEY SOURCES · Dockerfile.base · setup/build_standalone_ebook_convert_linux_local.py · src/calibre/customize/standalone_builtins.py · src/calibre/ebooks/conversion/weasy_pdf_binary.py · packaging/smoke-test.sh</p>
+      <p>KEY SOURCES · Dockerfile.base · packaging/extract-debian-packages.sh · packaging/build-system-runtime-from-debian.sh · src/calibre/customize/standalone_builtins.py · src/calibre/ebooks/conversion/weasy_pdf_binary.py · packaging/smoke-test.sh</p>
     </footer>
   </main>
 
