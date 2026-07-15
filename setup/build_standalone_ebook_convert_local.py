@@ -16,6 +16,16 @@ import sys
 import tarfile
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from standalone_build_common import (
+    FORBIDDEN_STANDALONE_CALIBRE_DIRS,
+    HELPER_BINS,
+    NO_QT_NAMES,
+    PYTHON_DYNLOAD_DROP_NAMES,
+    PYTHON_DYNLOAD_DROP_PREFIXES,
+    PYTHON_STDLIB_DROP_FILES,
+    QT_NAMED_PYTHON_FILES,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 PY_VER = f'{sys.version_info.major}.{sys.version_info.minor}'
@@ -29,19 +39,9 @@ MACHO_MAGICS = {
     b'\xfe\xed\xfa\xcf',
     b'\xcf\xfa\xed\xfe',
 }
-NO_QT_NAMES = {'qt', 'PyQt6', 'PyQt6_sip', 'PyQt6_WebEngine'}
 CALIBRE_DROP_DIRS = {
     'ai', 'db', 'devices', 'gui2', 'headless', 'library', 'plugins', 'scraper', 'srv', 'web',
 }
-FORBIDDEN_STANDALONE_CALIBRE_DIRS = frozenset({
-    'ai',
-    'devices',
-    'gui2',
-    'headless',
-    'scraper',
-    'srv',
-    'web',
-})
 TOP_LEVEL_SRC_PACKAGES = ('calibre', 'polyglot', 'css_selectors', 'tinycss', 'odf')
 RESOURCE_KEEP = frozenset({
     'calibre-ebook-root-CA.crt',
@@ -60,17 +60,6 @@ PYTHON_STDLIB_DROP_DIRS = frozenset({
     'venv',
     'wsgiref',
     'xmlrpc',
-})
-PYTHON_STDLIB_DROP_FILES = frozenset({
-    'antigravity.py',
-    'cProfile.py',
-    'doctest.py',
-    'pdb.py',
-    'profile.py',
-    'pstats.py',
-    'pydoc.py',
-    'this.py',
-    'turtle.py',
 })
 SITE_PACKAGES_ALLOWLIST = frozenset({
     'PIL',
@@ -94,9 +83,6 @@ SITE_PACKAGES_ALLOWLIST = frozenset({
     'tzlocal',
     'webencodings',
 })
-QT_NAMED_PYTHON_FILES = (
-    ('PIL', 'ImageQt.py'),
-)
 PLUGIN_ALLOWLIST = frozenset({
     'cPalmdoc.so',
     'fast_css_transform.so',
@@ -112,19 +98,12 @@ PLUGIN_ALLOWLIST = frozenset({
     'uchardet.so',
     'unicode_names.so',
 })
-HELPER_BINS = ('pdftohtml', 'pdfinfo', 'pdftoppm', 'pdftotext')
 CJK_FONT_CANDIDATES = (
     '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
     '/System/Library/Fonts/STHeiti Light.ttc',
     '/System/Library/Fonts/STHeiti Medium.ttc',
     '/opt/homebrew/share/fonts/wqy-microhei.ttc',
 )
-PYTHON_DYNLOAD_DROP_PREFIXES = ('_test', '_xxtest')
-PYTHON_DYNLOAD_DROP_NAMES = {
-    '_ctypes_test',
-    'xxlimited',
-    'xxlimited_35',
-}
 
 
 def run(*cmd, check=True, echo=False):

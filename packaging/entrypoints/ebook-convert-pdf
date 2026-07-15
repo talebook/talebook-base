@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+RUNTIME="${TALEBOOK_CALIBRE_PRIVATE_RUNTIME:-/usr/lib/talebook-calibre-runtime}"
+exec "$RUNTIME/ebook-convert-pdf" "$@"

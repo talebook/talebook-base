@@ -36,6 +36,9 @@ from calibre.customize.conversion import InputFormatPlugin, OutputFormatPlugin
 from calibre.customize.profiles import InputProfile, OutputProfile
 from calibre.customize.zipplugin import loader
 if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
+    # Placeholder for the standalone converter, which ships no device
+    # drivers: isinstance(x, DevicePlugin) must stay valid and always be
+    # False. Do not remove as dead code.
     class DevicePlugin:
         pass
 else:

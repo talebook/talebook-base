@@ -29,37 +29,28 @@ calibre_constants = iv['calibre_constants']
 QT_DLLS, QT_PLUGINS, PYQT_MODULES = iv['QT_DLLS'], iv['QT_PLUGINS'], iv['PYQT_MODULES']
 qt_get_dll_path = partial(get_dll_path, loc=os.path.join(QT_PREFIX, 'lib'))
 ffmpeg_get_dll_path = partial(get_dll_path, loc=FFMPEG_PREFIX)
-LINUX_BINARY_FLAVOR = os.environ.get('CALIBRE_LINUX_BINARY_FLAVOR', '')
-STANDALONE_NO_QT_PACKAGES = {'PyQt6', 'PyQt6_sip', 'PyQt6_WebEngine', 'qt'}
-STANDALONE_FORBIDDEN_QT_ARTIFACTS = {
-    'qt', 'PyQt6', 'PyQt6_sip', 'PyQt6_WebEngine', 'QtWebEngineProcess',
-    'qtwebengine_locales',
-}
-STANDALONE_CALIBRE_DROP_DIRS = {
-    'ai', 'devices', 'gui2', 'headless', 'scraper', 'srv', 'web',
-}
-STANDALONE_RESOURCE_KEEP = frozenset({
-    'calibre-ebook-root-CA.crt',
-    'common-english-words.txt',
-    'default_tweaks.py',
-    'fonts',
-    'localization',
-    'mime.types',
-    'pdf-preprint.js',
-    'templates',
-})
+def _load_standalone_common():
+    import importlib.util
+    path = j(os.path.dirname(self_dir), 'standalone_common.py')
+    spec = importlib.util.spec_from_file_location('bypy_standalone_common', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+standalone_common = _load_standalone_common()
+STANDALONE_NO_QT_PACKAGES = standalone_common.STANDALONE_NO_QT_PACKAGES
+STANDALONE_CALIBRE_DROP_DIRS = standalone_common.STANDALONE_CALIBRE_DROP_DIRS
+STANDALONE_QT_NAMED_PYTHON_FILES = standalone_common.STANDALONE_QT_NAMED_PYTHON_FILES
+is_forbidden_qt_artifact = standalone_common.is_forbidden_qt_artifact
+validate_no_qt_artifacts = standalone_common.validate_no_qt_artifacts
+prune_standalone_resources = standalone_common.prune_standalone_resources
+filter_standalone_calibre_extensions = standalone_common.filter_standalone_calibre_extensions
+IS_STANDALONE = standalone_common.is_standalone_build()
 STANDALONE_CJK_FONT_CANDIDATES = (
     '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
 )
-STANDALONE_QT_NAMED_PYTHON_FILES = {
-    ('PIL', 'ImageQt.py'),
-}
-STANDALONE_CALIBRE_EXTENSIONS = {
-    'cPalmdoc', 'fast_css_transform', 'fast_html_entities', 'freetype',
-    'html_as_json', 'hyphen', 'icu', 'matcher', 'podofo', 'speedup',
-    'translator', 'uchardet', 'unicode_names',
-}
 STANDALONE_HELPER_BINS = ('pdftohtml', 'pdfinfo', 'pdftoppm', 'pdftotext')
 STANDALONE_LIBRARY_NAMES = (
     'expat ffi z lzma openjp2 poppler iconv xml2 xslt jpeg png16'
@@ -78,7 +69,7 @@ def binary_includes():
         get_dll_path('bz2', 2), get_dll_path('sqlite3', 0),
         get_dll_path('python' + py_ver, 2), get_dll_path('jbig', 2),
     ]
-    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+    if not IS_STANDALONE:
         ans += [
             j(PREFIX, 'bin', x) for x in ('optipng', 'cwebp', 'JxrDecApp')] + [
             j(PREFIX, 'private', 'mozjpeg', 'bin', x) for x in ('jpegtran', 'cjpeg')] + [
@@ -138,7 +129,7 @@ def ignore_in_lib(base, items, ignored_dirs=None):
 
 def ignore_standalone_in_lib(base, items, ignored_dirs=None):
     ans = set(ignore_in_lib(base, items, ignored_dirs))
-    if LINUX_BINARY_FLAVOR == 'ebook-convert':
+    if IS_STANDALONE:
         if os.path.basename(base) == 'calibre':
             ans.update(x for x in items if x in STANDALONE_CALIBRE_DROP_DIRS)
         for package, filename in STANDALONE_QT_NAMED_PYTHON_FILES:
@@ -147,30 +138,10 @@ def ignore_standalone_in_lib(base, items, ignored_dirs=None):
     return ans
 
 
-def prune_standalone_resources(resources):
-    if LINUX_BINARY_FLAVOR != 'ebook-convert':
-        return
-    for name in os.listdir(resources):
-        path = j(resources, name)
-        if name not in STANDALONE_RESOURCE_KEEP:
-            if os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
-
-
 def copy_standalone_cjk_font(resources):
-    if LINUX_BINARY_FLAVOR != 'ebook-convert':
-        return
-    fonts = j(resources, 'fonts')
-    os.makedirs(fonts, exist_ok=True)
-    candidates = [os.environ.get('CALIBRE_STANDALONE_CJK_FONT'), *STANDALONE_CJK_FONT_CANDIDATES]
-    for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            _base, ext = os.path.splitext(candidate)
-            shutil.copyfile(candidate, j(fonts, 'standalone-cjk' + (ext or '.ttf')))
-            return
-    raise SystemExit('Missing CJK font for standalone PDF output. Install fonts-wqy-microhei or set CALIBRE_STANDALONE_CJK_FONT.')
+    standalone_common.copy_standalone_cjk_font(
+        resources, STANDALONE_CJK_FONT_CANDIDATES,
+        'Install fonts-wqy-microhei or set CALIBRE_STANDALONE_CJK_FONT.')
 
 
 def import_site_packages(srcdir, dest):
@@ -187,38 +158,9 @@ def import_site_packages(srcdir, dest):
                 if os.path.exists(src) and os.path.isdir(src):
                     import_site_packages(src, dest)
         elif is_package_dir(f):
-            if LINUX_BINARY_FLAVOR == 'ebook-convert' and x in STANDALONE_NO_QT_PACKAGES:
+            if IS_STANDALONE and x in STANDALONE_NO_QT_PACKAGES:
                 continue
             shutil.copytree(f, j(dest, x), ignore=ignore_standalone_in_lib)
-
-
-def filter_standalone_calibre_extensions(dest, ext_map):
-    if LINUX_BINARY_FLAVOR != 'ebook-convert':
-        return ext_map
-    for path in glob.glob(j(dest, '*.so')):
-        name = os.path.basename(path).partition('.')[0]
-        if name not in STANDALONE_CALIBRE_EXTENSIONS:
-            os.remove(path)
-    ans = {}
-    for key, path in ext_map.items():
-        name = os.path.basename(path).partition('.')[0]
-        key_name = str(key).rpartition('.')[-1]
-        if name in STANDALONE_CALIBRE_EXTENSIONS or key_name in STANDALONE_CALIBRE_EXTENSIONS:
-            ans[key] = path
-    return ans
-
-
-def is_forbidden_qt_artifact(name):
-    return name in STANDALONE_FORBIDDEN_QT_ARTIFACTS or (
-        name.startswith(('Qt', 'libQt')) and name.endswith(('.so', '.dylib', '.framework'))
-    )
-
-
-def validate_no_qt_artifacts(root):
-    for base, dirs, files in os.walk(root):
-        bad = sorted(x for x in set(dirs) | set(files) if is_forbidden_qt_artifact(x))
-        if bad:
-            raise SystemExit(f'Unexpected Qt artifacts in standalone package under {base}: {bad}')
 
 
 def copy_libs(env):
@@ -235,7 +177,7 @@ def copy_libs(env):
 
     base = j(QT_PREFIX, 'plugins')
     dest = j(env.lib_dir, '..', 'plugins')
-    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+    if not IS_STANDALONE:
         os.mkdir(dest)
         for x in QT_PLUGINS:
             if x not in ('audio', 'printsupport'):
@@ -268,7 +210,7 @@ def copy_python(env, ext_dir):
     for x in os.listdir(env.SRC):
         c = j(env.SRC, x)
         if os.path.exists(j(c, '__init__.py')):
-            if LINUX_BINARY_FLAVOR == 'ebook-convert' and x in STANDALONE_NO_QT_PACKAGES:
+            if IS_STANDALONE and x in STANDALONE_NO_QT_PACKAGES:
                 continue
             shutil.copytree(c, j(dest, x), ignore=partial(ignore_standalone_in_lib, ignored_dirs={}))
         elif os.path.isfile(c):
@@ -276,11 +218,11 @@ def copy_python(env, ext_dir):
     shutil.copytree(j(env.src_root, 'resources'), j(env.base, 'resources'))
     prune_standalone_resources(j(env.base, 'resources'))
     copy_standalone_cjk_font(j(env.base, 'resources'))
-    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+    if not IS_STANDALONE:
         for pak in glob.glob(j(QT_PREFIX, 'resources', '*')):
             shutil.copy2(pak, j(env.base, 'resources'))
     os.mkdir(j(env.base, 'translations'))
-    if LINUX_BINARY_FLAVOR != 'ebook-convert':
+    if not IS_STANDALONE:
         shutil.copytree(j(QT_PREFIX, 'translations', 'qtwebengine_locales'), j(env.base, 'translations', 'qtwebengine_locales'))
     sitepy = j(self_dir, 'site.py')
     shutil.copy2(sitepy, j(env.py_dir, 'site.py'))
@@ -324,7 +266,7 @@ def build_launchers(env):
     modules = {k: list(v) for k, v in calibre_constants['modules'].items()}
     basenames = {k: list(v) for k, v in calibre_constants['basenames'].items()}
     functions = {k: list(v) for k, v in calibre_constants['functions'].items()}
-    if LINUX_BINARY_FLAVOR == 'ebook-convert':
+    if IS_STANDALONE:
         modules = {'console': ['calibre.ebooks.conversion.standalone_binary'], 'gui': []}
         basenames = {'console': ['ebook-convert'], 'gui': []}
         functions = {'console': ['main'], 'gui': []}
@@ -345,7 +287,7 @@ def build_launchers(env):
             xflags += ['-DGUI_APP=' + ('1' if typ == 'gui' else '0')]
             xflags += ['-DMODULE=L"%s"' % mod, '-DBASENAME=L"%s"' % bname,
                        '-DFUNCTION=L"%s"' % func]
-            if LINUX_BINARY_FLAVOR == 'ebook-convert':
+            if IS_STANDALONE:
                 xflags.append('-DSTANDALONE_CONVERTER=1')
 
             exe = j(env.bin_dir, bname)
@@ -409,7 +351,7 @@ def strip_binaries(env):
 
 
 def run_package_tests(env):
-    if LINUX_BINARY_FLAVOR == 'ebook-convert':
+    if IS_STANDALONE:
         validate_standalone_package_surface(env)
         subprocess.check_call([
             sys.executable, j(CALIBRE_DIR, 'setup', 'standalone_ebook_convert_smoke.py'),
@@ -466,7 +408,7 @@ def create_tarfile(env, compression_level='9'):
             raise
     os.makedirs(base, exist_ok=True)  # when base is a mount point deleting it fails with EBUSY
     appname = calibre_constants['appname']
-    if LINUX_BINARY_FLAVOR == 'ebook-convert':
+    if IS_STANDALONE:
         appname += '-ebook-convert'
     dist = os.path.join(base, '%s-%s-%s.tar' % (appname, calibre_constants['version'], arch))
     with tarfile.open(dist, mode='w', format=tarfile.PAX_FORMAT) as tf:
@@ -484,7 +426,7 @@ def create_tarfile(env, compression_level='9'):
     secs = time.time() - start_time
     print('Compressed in %d minutes %d seconds' % (secs // 60, secs % 60))
     os.rename(dist + '.xz', ans)
-    if LINUX_BINARY_FLAVOR == 'ebook-convert':
+    if IS_STANDALONE:
         validate_standalone_archive(ans)
     print('Archive %s created: %.2f MB' % (
         os.path.basename(ans), os.stat(ans).st_size / (1024.**2)))

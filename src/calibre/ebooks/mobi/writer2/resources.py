@@ -71,10 +71,7 @@ class Resources:
             with PersistentTemporaryFile(suffix='.png') as pt:
                 pt.write(data)
             try:
-                if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
-                    from calibre.utils.standalone_img import optimize_png
-                else:
-                    from calibre.utils.img import optimize_png
+                from calibre.utils.img_shim import optimize_png
                 optimize_png(pt.name)
                 data = open(pt.name, 'rb').read()
             finally:
@@ -154,10 +151,7 @@ class Resources:
                     self.has_fonts = True
 
     def convert_webp(self, item):
-        if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
-            from calibre.utils.standalone_img import image_and_format_from_data, image_to_data
-        else:
-            from calibre.utils.img import image_and_format_from_data, image_to_data
+        from calibre.utils.img_shim import image_and_format_from_data, image_to_data
         img, fmt = image_and_format_from_data(item.data)
         if fmt == 'webp' and not img.isNull():
             self.log.info(f'Converting WebP image {item.href} to PNG')

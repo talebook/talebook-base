@@ -123,10 +123,10 @@ standalone 插件列表中的 `StandalonePDFInput` 克隆 calibre PDF 输入插�
 MOBI 相关改动主要为 no-Qt：
 
 - `mobi_output.py` 在 standalone 环境下禁用 `SVGRasterizer`，避免导入 Qt rasterizer。
-- `mobi6.py`、`mobi/utils.py`、`mobi/writer2/resources.py` 在 standalone 环境下使用
-  `calibre.utils.standalone_img`。
-- `docx/images.py` 在 standalone 环境下使用 `calibre.utils.standalone_img`，避免 DOCX
-  图片缩放路径导入 Qt 版 `calibre.utils.img`。
+- `mobi6.py`、`mobi/utils.py`、`mobi/writer2/resources.py`、`docx/images.py` 统一从
+  `calibre.utils.img_shim` 导入图片辅助函数；该分发模块在 standalone 环境下重导出
+  `calibre.utils.standalone_img`，否则重导出 Qt 版 `calibre.utils.img`，环境开关只
+  存在于这一个文件中。
 - `standalone_img.py` 使用 Pillow 实现基础图片读取、缩放、格式转换、cover 保存、
   GIF/PNG/JPEG 处理。
 
@@ -141,6 +141,12 @@ SVG 处理的结论：
 
 `src/calibre/utils/safe_atexit.py` 在 standalone 环境下不再走 calibre 的外部清理进程，
 而是直接用 Python `atexit` 注册临时文件/目录清理，避免引入额外 calibre command。
+
+### 平台相关绕过
+
+`src/calibre/utils/localization.py` 在 standalone 环境下跳过 macOS 的
+`user_locale`/usbobserver 调用：usbobserver 扩展不在 standalone 包中，locale 直接走
+环境变量路径。
 
 ### 本地打包脚本
 
@@ -167,6 +173,23 @@ Linux 脚本在 Debian 容器内运行，以 Debian calibre 包为底座：
 
 Linux 脚本中特别排除了 Debian 中依赖 Qt 的 native 插件，例如 `imageops.so`、
 `libheadless.so`、`pictureflow.so`、`progress_indicator.so`、`rcc_backend.so`。
+
+两个脚本共享的常量清单（no-Qt 包名、禁入 calibre 目录、helper 二进制等）在
+`setup/standalone_build_common.py` 中维护，平台差异项（CJK 字体候选、资源保留清单等）
+留在各自脚本内。
+
+### 正式构建（bypy 集成）
+
+正式 release 使用 bypy 集成命令，flavor 通过 `CALIBRE_LINUX_BINARY_FLAVOR` /
+`CALIBRE_MACOS_BINARY_FLAVOR=ebook-convert` 传入：
+
+- `./setup.py linux_ebook_convert`（及 `linux_ebook_convert64` /
+  `linux_ebook_convertarm64`）构建 Linux standalone 包。
+- `./setup.py osx_ebook_convert` 构建 macOS standalone app。
+
+bypy 平台脚本（`bypy/linux/__main__.py`、`bypy/macos/__main__.py`）共享的 standalone
+常量与裁剪/校验逻辑在 `bypy/standalone_common.py` 中维护。命令细节见
+`bypy/README.rst`。
 
 ## 验证工具
 

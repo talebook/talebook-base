@@ -339,11 +339,17 @@ def load_standalone_binary_module():
     }
     modules['calibre.utils.logging'].Log = Log
     modules['calibre.ebooks.conversion.cli'].main = lambda args: 0
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    conversion_dir = os.path.join(root, 'src', 'calibre', 'ebooks', 'conversion')
+    common_spec = importlib.util.spec_from_file_location(
+        'calibre.ebooks.conversion.standalone_common', os.path.join(conversion_dir, 'standalone_common.py'))
+    common = importlib.util.module_from_spec(common_spec)
+    common_spec.loader.exec_module(common)
+    modules['calibre.ebooks.conversion.standalone_common'] = common
     old_modules = {k: sys.modules.get(k) for k in modules}
     sys.modules.update(modules)
     try:
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        path = os.path.join(root, 'src', 'calibre', 'ebooks', 'conversion', 'standalone_binary.py')
+        path = os.path.join(conversion_dir, 'standalone_binary.py')
         spec = importlib.util.spec_from_file_location('standalone_binary_under_test', path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -422,8 +428,8 @@ def create_unsafe_archive():
 
 def self_test():
     mod = load_standalone_binary_module()
-    assert mod.path_format('book.epub') == 'epub'
-    assert mod.path_format('.mobi') == 'mobi'
+    assert mod.extension_of('book.epub') == 'epub'
+    assert mod.extension_of('.mobi') == 'mobi'
     assert mod.validate_args(['ebook-convert', 'a.epub', 'b.pdf'])
     assert mod.validate_args(['ebook-convert', '--debug-pipeline', 'debug', 'a.epub', 'b.pdf'])
     assert mod.validate_args(['ebook-convert', 'a.epub', 'b.pdf', '-h'])

@@ -11,39 +11,16 @@ import sys
 
 os.environ.setdefault('CALIBRE_STANDALONE_CONVERTER', '1')
 
-
-def install_qt_import_guard():
-    import importlib.abc
-
-    class BlockQt(importlib.abc.MetaPathFinder):
-        def find_spec(self, fullname, path=None, target=None):
-            if fullname == 'qt' or fullname.startswith('qt.') or fullname == 'PyQt6' or fullname.startswith('PyQt6.'):
-                raise ImportError(f'Qt import blocked in standalone ebook-convert: {fullname}')
-            return None
-
-    sys.meta_path.insert(0, BlockQt())
-
+from calibre.ebooks.conversion.standalone_common import SUPPORTED_INPUT_FORMATS, extension_of, install_qt_import_guard
 
 if os.environ.get('CALIBRE_STANDALONE_FORBID_QT') == '1':
-    install_qt_import_guard()
+    install_qt_import_guard('ebook-convert')
 
 from calibre.utils.logging import Log
 
 from calibre.ebooks.conversion.cli import main as ebook_convert_main
 
-SUPPORTED_INPUT_FORMATS = frozenset({
-    'azw', 'azw3', 'docx', 'epub', 'mobi', 'original_epub',
-    'pdf', 'prc', 'txt', 'zip',
-})
-SUPPORTED_OUTPUT_FORMATS = frozenset({'epub', 'mobi', 'pdf', 'txt'})
-
-
-def path_format(path):
-    if path.startswith('.') and path[:2] not in {'..', '.'} and '/' not in path and '\\' not in path:
-        ext = path[1:]
-    else:
-        ext = os.path.splitext(path)[1][1:]
-    return ext.lower()
+SUPPORTED_OUTPUT_FORMATS = frozenset({'azw3', 'epub', 'mobi', 'pdf', 'txt'})
 
 
 def conversion_paths(args):
@@ -65,7 +42,7 @@ def conversion_paths(args):
         positional.append(arg)
     for i, first in enumerate(positional[:-1]):
         second = positional[i + 1]
-        if path_format(first) and path_format(second):
+        if extension_of(first) and extension_of(second):
             return first, second
     if len(positional) >= 2:
         return positional[0], positional[1]
@@ -82,8 +59,8 @@ def validate_args(args, log=None):
     input_path, output_path = conversion_paths(args)
     if not input_path or not output_path:
         return True
-    input_fmt = path_format(input_path)
-    output_fmt = path_format(output_path)
+    input_fmt = extension_of(input_path)
+    output_fmt = extension_of(output_path)
     bad = []
     if input_fmt not in SUPPORTED_INPUT_FORMATS:
         bad.append(('input', input_fmt or 'open ebook/folder'))

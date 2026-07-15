@@ -1,0 +1,112 @@
+# syntax=docker/dockerfile:1.6
+
+# ----------------------------------------
+# talebook 精简基础镜像
+#
+# 不再把完整 calibre / PyQt / Qt runtime 带进最终镜像。构建阶段使用 Debian
+# calibre 包作为已验证的运行时输入，现场裁剪出「精简版 calibre runtime」：
+# 单个共享 runtime + ebook-convert / ebook-convert-pdf / calibredb 入口。
+#
+# 主 Dockerfile 通过 FROM 引用本镜像，避免每次构建重复解压 runtime / 编译扩展。
+# 构建/发布见 Makefile 的 build-base / push-base 与 .github/workflows/build-base.yml。
+# ----------------------------------------
+
+# ----------------------------------------
+# 第一阶段：组装共享 Calibre runtime。这里沿用 standalone packager 的旧链路：
+# 以 Debian calibre 包为底座裁剪，不从当前源码全量编译 calibre/native plugins。
+FROM debian:13-slim AS runtime-build
+ARG BUILD_COUNTRY=""
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TALEBOOK_CALIBRE_PRIVATE_RUNTIME=/usr/lib/talebook-calibre-runtime
+
+RUN mkdir -p /var/lib/apt/lists/partial && \
+    chmod -R 0755 /var/lib/apt/lists/ && \
+    if [ "x${BUILD_COUNTRY}" = "xCN" ]; then \
+        echo "using repo mirrors for ${BUILD_COUNTRY}"; \
+        sed -i "s@deb.debian.org@mirrors.aliyun.com@g" /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        binutils \
+        ca-certificates \
+        calibre \
+        fonts-wqy-microhei \
+        gettext \
+        python3 \
+        python3-pyphen \
+        poppler-utils \
+        tar \
+        weasyprint && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src/calibre
+COPY setup/ setup/
+COPY src/ src/
+COPY resources/ resources/
+COPY --chmod=0755 packaging/build-runtime-from-debian.sh packaging/build-runtime-from-debian.sh
+
+RUN packaging/build-runtime-from-debian.sh "${TALEBOOK_CALIBRE_PRIVATE_RUNTIME}" && \
+    rm -rf /src/calibre
+
+
+# ----------------------------------------
+# 第二阶段：最终基础镜像。只装运行期依赖，禁止安装完整 calibre / PyQt / Qt runtime。
+FROM python:3.13-slim-trixie AS base
+ARG BUILD_COUNTRY=""
+ARG TARGETARCH
+ARG TARGETVARIANT
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV CALIBRE_STANDALONE_CONVERTER=1
+ENV CALIBRE_STANDALONE_FORBID_QT=1
+ENV TALEBOOK_CALIBRE_PRIVATE_RUNTIME=/usr/lib/talebook-calibre-runtime
+ENV TALEBOOK_CALIBRE_RUNTIME=/usr/lib/calibre
+ENV TALEBOOK_CALIBRE_RESOURCES=/usr/share/calibre
+ENV TALEBOOK_CALIBRE_PLUGINS=/usr/lib/calibre/calibre/plugins
+ENV TALEBOOK_CALIBRE_BIN=/usr/bin
+ENV PYTHONPATH=/usr/lib/calibre
+ENV LD_LIBRARY_PATH=/usr/lib/talebook-calibre-runtime/lib
+
+RUN mkdir -p /var/lib/apt/lists/partial && \
+    chmod -R 0755 /var/lib/apt/lists/ && \
+    if [ "x${BUILD_COUNTRY}" = "xCN" ]; then \
+        echo "using repo mirrors for ${BUILD_COUNTRY}"; \
+        sed -i "s@deb.debian.org@mirrors.aliyun.com@g" /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gettext \
+        gosu \
+        libstemmer0d \
+        nginx \
+        procps \
+        python3-apsw \
+        python3-xxhash \
+        sqlite3 \
+        supervisor \
+        tzdata && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=runtime-build /usr/lib/talebook-calibre-runtime/ /usr/lib/talebook-calibre-runtime/
+COPY --chmod=0644 packaging/entrypoints/*.py /usr/lib/talebook-calibre-runtime/lib/python/
+COPY --chmod=0755 packaging/entrypoints/ebook-convert packaging/entrypoints/ebook-convert-pdf packaging/entrypoints/calibredb /usr/bin/
+COPY --chmod=0755 packaging/install-runtime.sh /usr/local/sbin/install-talebook-calibre-runtime
+
+RUN /usr/local/sbin/install-talebook-calibre-runtime
+
+# Create a talebook user and change the Nginx startup user if it doesn't exist
+RUN if ! id -u talebook > /dev/null 2>&1; then \
+    useradd -u 911 -U -d /var/www/talebook -s /bin/false talebook && \
+    usermod -G users talebook && \
+    groupmod -g 911 talebook; \
+fi && \
+    sed -i "s/user www-data;/user talebook;/g" /etc/nginx/nginx.conf
+
+CMD ["/bin/bash"]

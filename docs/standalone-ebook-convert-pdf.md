@@ -30,6 +30,16 @@ The only output format is `pdf`.
 Unsupported formats are rejected intentionally, including `doc`, `ebk3`, `png`
 and `wps`.
 
+## CLI options
+
+Besides `INPUT OUTPUT.pdf`, the binary accepts two rendering options:
+
+- `--weasy-page-size` (default `A4`): CSS `@page` size value.
+- `--weasy-margin` (default `0.7in`): CSS `@page` margin value.
+
+Any other options (or everything after a literal `--`) are passed through to
+the calibre conversion pipeline unchanged.
+
 ## Packaging
 
 Builder:
@@ -100,6 +110,10 @@ Sample matrix on `samples/ca-format-samples`:
 ```text
 PDF sample matrix: 23/23 ok
 ```
+
+The matrix also runs a synthetic scanned-book regression case: an image-only
+EPUB (three images, no extractable text) must produce at least one PDF page per
+image instead of collapsing into a one-page title PDF.
 
 Notable rows:
 

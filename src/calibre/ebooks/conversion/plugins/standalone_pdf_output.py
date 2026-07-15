@@ -26,8 +26,46 @@ STANDALONE_CJK_FONT_NAMES = ('standalone-cjk.ttf', 'standalone-cjk.ttc', 'wqy-mi
 
 
 def utf16be_hex(text, bom=False):
-    prefix = 'FEFF' if bom else ''
-    return '<' + prefix + ''.join(f'{ord(x) if ord(x) <= 0xffff else 0xfffd:04X}' for x in text) + '>'
+    prefix = '\ufeff' if bom else ''
+    return '<' + (prefix + text).encode('utf-16-be', 'replace').hex().upper() + '>'
+
+
+class TextEncoder:
+    '''
+    Maps document characters to 2-byte CIDs. BMP characters use their own code
+    point as CID; non-BMP characters get spare CIDs (starting in the Private
+    Use Area) so ToUnicode can map one CID to the full surrogate pair — text
+    extractors cannot reassemble a character split across two CIDs.
+    '''
+
+    def __init__(self, text):
+        chars = sorted(set(text))
+        used = {ord(c) for c in chars if ord(c) <= 0xffff}
+        self.cid_of = {}
+        next_cid = 0xE000
+        for c in chars:
+            cp = ord(c)
+            if cp <= 0xffff:
+                self.cid_of[c] = cp
+                continue
+            while next_cid <= 0xffff and next_cid in used:
+                next_cid += 1
+            if next_cid > 0xffff:  # more distinct non-BMP chars than free CIDs
+                self.cid_of[c] = 0xfffd
+                continue
+            self.cid_of[c] = next_cid
+            used.add(next_cid)
+        if not self.cid_of:
+            self.cid_of[' '] = 0x20
+
+    def cids(self, text):
+        return [self.cid_of.get(c, 0xfffd) for c in text]
+
+    def hex_string(self, text):
+        return '<' + ''.join(f'{x:04X}' for x in self.cids(text)) + '>'
+
+    def items(self):
+        return sorted(self.cid_of.items(), key=lambda x: x[1])
 
 
 def metadata_text(value, default='Unknown'):
@@ -66,15 +104,16 @@ def wrap_words(text, max_chars):
     return ans or ['']
 
 
-def make_tounicode_cmap(chars):
-    chars = sorted({ord(x) for x in chars if ord(x) <= 0xffff})
-    if not chars:
-        chars = [0x20]
+def make_tounicode_cmap(encoder):
+    entries = [
+        (cid, char.encode('utf-16-be').hex().upper())
+        for char, cid in encoder.items()
+    ]
     chunks = []
-    for i in range(0, len(chars), 100):
-        group = chars[i:i + 100]
+    for i in range(0, len(entries), 100):
+        group = entries[i:i + 100]
         chunks.append(f'{len(group)} beginbfchar')
-        chunks.extend(f'<{x:04X}> <{x:04X}>' for x in group)
+        chunks.extend(f'<{cid:04X}> <{dest}>' for cid, dest in group)
         chunks.append('endbfchar')
     body = '\n'.join(chunks)
     return f'''/CIDInit /ProcSet findresource begin
@@ -214,7 +253,7 @@ class EmbeddedFont:
         for _ in range(groups):
             start, end, start_gid = struct.unpack_from('>III', data, pos)
             pos += 12
-            for cp in range(start, min(end, 0xffff) + 1):
+            for cp in range(start, end + 1):
                 ans[cp] = start_gid + cp - start
         return ans
 
@@ -279,19 +318,18 @@ def pdf_stream(data, attrs=''):
     return b'<< /Length %d%s >>\nstream\n' % (len(data), attrs.encode('ascii')) + data + b'\nendstream'
 
 
-def make_cid_to_gid_map(font, chars):
-    chars = sorted({ord(x) for x in chars if ord(x) <= 0xffff})
-    max_cid = max(chars or [0])
+def make_cid_to_gid_map(font, encoder):
+    max_cid = max(cid for _char, cid in encoder.items())
     raw = bytearray((max_cid + 1) * 2)
-    for cid in chars:
-        struct.pack_into('>H', raw, cid * 2, font.glyph_id(cid))
+    for char, cid in encoder.items():
+        struct.pack_into('>H', raw, cid * 2, font.glyph_id(ord(char)))
     return bytes(raw)
 
 
-def make_widths(font, chars):
+def make_widths(font, encoder):
     pairs = []
-    for cid in sorted({ord(x) for x in chars if ord(x) <= 0xffff}):
-        pairs.append(f'{cid} [{font.width_for_gid(font.glyph_id(cid))}]')
+    for char, cid in encoder.items():
+        pairs.append(f'{cid} [{font.width_for_gid(font.glyph_id(ord(char)))}]')
     return '[' + ' '.join(pairs) + ']'
 
 
@@ -329,6 +367,35 @@ def collapse_text(text):
     return re.sub(r'\n{3,}', '\n\n', text).strip()
 
 
+def finish_pdf(objects, catalog_id, pages_id, page_ids, title, author):
+    info_id = len(objects) + 1
+    objects.append(
+        f'<< /Title {utf16be_hex(title, bom=True)} /Author {utf16be_hex(author, bom=True)} '
+        '/Producer (calibre standalone ebook-convert) >>'
+    )
+    objects[catalog_id - 1] = f'<< /Type /Catalog /Pages {pages_id} 0 R >>'
+    kids = ' '.join(f'{x} 0 R' for x in page_ids)
+    objects[pages_id - 1] = f'<< /Type /Pages /Kids [{kids}] /Count {len(page_ids)} >>'
+
+    out = bytearray(b'%PDF-1.4\n%\xe2\xe3\xcf\xd3\n')
+    offsets = []
+    for i, obj in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += f'{i} 0 obj\n'.encode('ascii')
+        out += obj if isinstance(obj, bytes) else obj.encode('ascii')
+        out += b'\nendobj\n'
+    xref = len(out)
+    out += f'xref\n0 {len(objects) + 1}\n'.encode('ascii')
+    out += b'0000000000 65535 f \n'
+    for offset in offsets:
+        out += f'{offset:010d} 00000 n \n'.encode('ascii')
+    out += (
+        f'trailer\n<< /Size {len(objects) + 1} /Root {catalog_id} 0 R /Info {info_id} 0 R >>\n'
+        f'startxref\n{xref}\n%%EOF\n'
+    ).encode('ascii')
+    return bytes(out)
+
+
 def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792), margin=72, font_size=11):
     width, height = page_size
     leading = font_size + 4
@@ -344,11 +411,12 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
     catalog_id = add('')  # placeholder
     pages_id = add('')
     all_text = '\n'.join(lines) + '\n' + title + '\n' + author
-    tounicode = make_tounicode_cmap(all_text).encode('ascii')
+    encoder = TextEncoder(all_text)
+    tounicode = make_tounicode_cmap(encoder).encode('ascii')
     tounicode_id = add(pdf_stream(tounicode))
     font = EmbeddedFont(find_cjk_font())
     font_file_id = add(pdf_stream(font.raw, f'/Length1 {len(font.raw)}'))
-    cid_to_gid_id = add(pdf_stream(make_cid_to_gid_map(font, all_text)))
+    cid_to_gid_id = add(pdf_stream(make_cid_to_gid_map(font, encoder)))
     bbox = ' '.join(str(font.scale(x)) for x in (font.x_min, font.y_min, font.x_max, font.y_max))
     descriptor_id = add(
         f'<< /Type /FontDescriptor /FontName /StandaloneCJK /Flags 4 /FontBBox [{bbox}] '
@@ -358,7 +426,7 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
     cidfont_id = add(
         f'<< /Type /Font /Subtype /CIDFontType2 /BaseFont /StandaloneCJK '
         f'/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> '
-        f'/FontDescriptor {descriptor_id} 0 R /CIDToGIDMap {cid_to_gid_id} 0 R /W {make_widths(font, all_text)} >>'
+        f'/FontDescriptor {descriptor_id} 0 R /CIDToGIDMap {cid_to_gid_id} 0 R /W {make_widths(font, encoder)} >>'
     )
     font_id = add(
         f'<< /Type /Font /Subtype /Type0 /BaseFont /StandaloneCJK /Encoding /Identity-H '
@@ -375,7 +443,7 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
                 first = False
             else:
                 commands.append(f'0 -{leading} Td')
-            commands.append(f'{utf16be_hex(line)} Tj')
+            commands.append(f'{encoder.hex_string(line)} Tj')
         commands.append('ET')
         stream = '\n'.join(commands).encode('ascii')
         content_id = add(pdf_stream(stream))
@@ -385,31 +453,7 @@ def make_pdf_bytes(lines, title='Unknown', author='Unknown', page_size=(612, 792
         )
         page_ids.append(page_id)
 
-    info_id = add(
-        f'<< /Title {utf16be_hex(title, bom=True)} /Author {utf16be_hex(author, bom=True)} '
-        '/Producer (calibre standalone ebook-convert) >>'
-    )
-    objects[catalog_id - 1] = f'<< /Type /Catalog /Pages {pages_id} 0 R >>'
-    kids = ' '.join(f'{x} 0 R' for x in page_ids)
-    objects[pages_id - 1] = f'<< /Type /Pages /Kids [{kids}] /Count {len(page_ids)} >>'
-
-    out = bytearray(b'%PDF-1.4\n%\xe2\xe3\xcf\xd3\n')
-    offsets = [0]
-    for i, obj in enumerate(objects, 1):
-        offsets.append(len(out))
-        out += f'{i} 0 obj\n'.encode('ascii')
-        out += obj if isinstance(obj, bytes) else obj.encode('ascii')
-        out += b'\nendobj\n'
-    xref = len(out)
-    out += f'xref\n0 {len(objects) + 1}\n'.encode('ascii')
-    out += b'0000000000 65535 f \n'
-    for offset in offsets[1:]:
-        out += f'{offset:010d} 00000 n \n'.encode('ascii')
-    out += (
-        f'trailer\n<< /Size {len(objects) + 1} /Root {catalog_id} 0 R /Info {info_id} 0 R >>\n'
-        f'startxref\n{xref}\n%%EOF\n'
-    ).encode('ascii')
-    return bytes(out)
+    return finish_pdf(objects, catalog_id, pages_id, page_ids, title, author)
 
 
 def jpeg_image_data(data):
@@ -462,31 +506,7 @@ def make_image_pdf_bytes(images, title='Unknown', author='Unknown', page_size=(6
     if not page_ids:
         return make_pdf_bytes([''], title=title, author=author, page_size=page_size)
 
-    info_id = add(
-        f'<< /Title {utf16be_hex(title, bom=True)} /Author {utf16be_hex(author, bom=True)} '
-        '/Producer (calibre standalone ebook-convert) >>'
-    )
-    objects[catalog_id - 1] = f'<< /Type /Catalog /Pages {pages_id} 0 R >>'
-    kids = ' '.join(f'{x} 0 R' for x in page_ids)
-    objects[pages_id - 1] = f'<< /Type /Pages /Kids [{kids}] /Count {len(page_ids)} >>'
-
-    out = bytearray(b'%PDF-1.4\n%\xe2\xe3\xcf\xd3\n')
-    offsets = [0]
-    for i, obj in enumerate(objects, 1):
-        offsets.append(len(out))
-        out += f'{i} 0 obj\n'.encode('ascii')
-        out += obj if isinstance(obj, bytes) else obj.encode('ascii')
-        out += b'\nendobj\n'
-    xref = len(out)
-    out += f'xref\n0 {len(objects) + 1}\n'.encode('ascii')
-    out += b'0000000000 65535 f \n'
-    for offset in offsets[1:]:
-        out += f'{offset:010d} 00000 n \n'.encode('ascii')
-    out += (
-        f'trailer\n<< /Size {len(objects) + 1} /Root {catalog_id} 0 R /Info {info_id} 0 R >>\n'
-        f'startxref\n{xref}\n%%EOF\n'
-    ).encode('ascii')
-    return bytes(out)
+    return finish_pdf(objects, catalog_id, pages_id, page_ids, title, author)
 
 
 class StandalonePDFOutput(OutputFormatPlugin):
@@ -521,7 +541,9 @@ class StandalonePDFOutput(OutputFormatPlugin):
                 text = collapse_text(re.sub(r'<[^>]+>', ' ', text))
                 if text:
                     chunks.append(text)
-        return '\n\n'.join(chunks) or metadata_text(getattr(oeb_book.metadata, 'title', None))
+        # May be empty; the caller decides between the image-page path and a
+        # title-only fallback, so no placeholder text is injected here.
+        return '\n\n'.join(chunks)
 
     def image_pages_from_oeb(self, oeb_book, log):
         hrefs = oeb_book.manifest.hrefs
@@ -568,7 +590,7 @@ class StandalonePDFOutput(OutputFormatPlugin):
             # page. Overlong lines are clipped by PDF extractors even if the text
             # is present in the content stream.
             max_chars = max(20, int((page_size[0] - 144) / font_size))
-            lines = wrap_words(text, max_chars)
+            lines = wrap_words(text or title, max_chars)
             raw = make_pdf_bytes(lines, title=title, author=author, page_size=page_size, font_size=font_size)
         close = False
         if not hasattr(output_path, 'write'):

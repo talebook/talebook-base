@@ -22,39 +22,15 @@ from xml.etree import ElementTree as ET
 
 os.environ.setdefault('CALIBRE_STANDALONE_CONVERTER', '1')
 
-SUPPORTED_INPUT_FORMATS = frozenset({
-    'azw', 'azw3', 'docx', 'epub', 'mobi', 'original_epub',
-    'pdf', 'prc', 'txt', 'zip',
-})
+from calibre.ebooks.conversion.standalone_common import SUPPORTED_INPUT_FORMATS, extension_of, install_qt_import_guard
+
+if os.environ.get('CALIBRE_STANDALONE_FORBID_QT') == '1':
+    install_qt_import_guard('ebook-convert-pdf')
 
 XHTML_MEDIA_TYPES = frozenset({'application/xhtml+xml', 'text/html'})
 CSS_MEDIA_TYPES = frozenset({'text/css'})
 IMAGE_MEDIA_PREFIX = 'image/'
 SPACE_RE = re.compile(r'\s+')
-
-
-def install_qt_import_guard():
-    import importlib.abc
-
-    class BlockQt(importlib.abc.MetaPathFinder):
-        def find_spec(self, fullname, path=None, target=None):
-            if fullname == 'qt' or fullname.startswith('qt.') or fullname == 'PyQt6' or fullname.startswith('PyQt6.'):
-                raise ImportError(f'Qt import blocked in standalone ebook-convert-pdf: {fullname}')
-            return None
-
-    sys.meta_path.insert(0, BlockQt())
-
-
-if os.environ.get('CALIBRE_STANDALONE_FORBID_QT') == '1':
-    install_qt_import_guard()
-
-
-def path_format(path):
-    if path.startswith('.') and path[:2] not in {'..', '.'} and '/' not in path and '\\' not in path:
-        ext = path[1:]
-    else:
-        ext = os.path.splitext(path)[1][1:]
-    return ext.lower()
 
 
 def safe_file_url(path):
@@ -213,11 +189,11 @@ def convert(input_path, output_path, passthrough_args=(), page_size='A4', margin
             f'WeasyPrint or one of its dependencies is not available in this package: {err}'
         ) from err
 
-    input_fmt = path_format(input_path)
+    input_fmt = extension_of(input_path)
     if input_fmt not in SUPPORTED_INPUT_FORMATS:
         allowed = ', '.join(sorted(SUPPORTED_INPUT_FORMATS))
         raise ValueError(f'Unsupported input format for ebook-convert-pdf: {input_fmt or "open ebook/folder"}. Allowed: {allowed}')
-    if path_format(output_path) != 'pdf':
+    if extension_of(output_path) != 'pdf':
         raise ValueError('ebook-convert-pdf output path must end in .pdf')
 
     output_parent = os.path.dirname(os.path.abspath(output_path))

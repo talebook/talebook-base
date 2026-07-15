@@ -1,13 +1,16 @@
 __license__ = 'GPL v3'
 __copyright__ = '2026, Kovid Goyal <kovid at kovidgoyal.net>'
 
+import os
+
 from calibre.customize import MetadataReaderPlugin, MetadataWriterPlugin
+from calibre.customize.profiles import input_profiles, output_profiles
 from calibre.ebooks.conversion.plugins.docx_input import DOCXInput
 from calibre.ebooks.conversion.plugins.epub_input import EPUBInput
 from calibre.ebooks.conversion.plugins.epub_output import EPUBOutput
 from calibre.ebooks.conversion.plugins.html_input import HTMLInput
 from calibre.ebooks.conversion.plugins.mobi_input import MOBIInput
-from calibre.ebooks.conversion.plugins.mobi_output import MOBIOutput
+from calibre.ebooks.conversion.plugins.mobi_output import AZW3Output, MOBIOutput
 from calibre.ebooks.conversion.plugins.oeb_output import OEBOutput
 from calibre.ebooks.conversion.plugins.pdf_input import PDFInput
 from calibre.ebooks.conversion.plugins.standalone_pdf_output import StandalonePDFOutput
@@ -46,8 +49,33 @@ class PDFMetadataReader(MetadataReaderPlugin):
     description = _('Read metadata from %s files') % 'PDF'
 
     def get_metadata(self, stream, ftype):
-        from calibre.ebooks.metadata import MetaInformation
-        return MetaInformation(_('Unknown'), [_('Unknown')])
+        # The regular PDF reader runs read_info() via fork_job, worker
+        # infrastructure the standalone binary does not ship. pdfinfo is
+        # bundled, so call read_info() in-process (it chdirs, restore cwd).
+        import shutil
+
+        from calibre.ebooks.metadata import MetaInformation, string_to_authors
+        from calibre.ebooks.metadata.pdf import read_info
+        from calibre.ptempfile import TemporaryDirectory
+        with TemporaryDirectory('_standalone_pdf_metadata') as pdfpath:
+            stream.seek(0)
+            with open(os.path.join(pdfpath, 'src.pdf'), 'wb') as f:
+                shutil.copyfileobj(stream, f)
+            cwd = os.getcwd()
+            try:
+                info = read_info(pdfpath, False)
+            finally:
+                os.chdir(cwd)
+        if not info:
+            return MetaInformation(_('Unknown'), [_('Unknown')])
+        title = info.get('Title') or _('Unknown')
+        author = info.get('Author')
+        mi = MetaInformation(title, string_to_authors(author) if author else [_('Unknown')])
+        if info.get('Creator'):
+            mi.book_producer = info['Creator']
+        if info.get('Subject'):
+            mi.tags = [info['Subject']]
+        return mi
 
 
 class TXTMetadataReader(MetadataReaderPlugin):
@@ -117,9 +145,6 @@ class PDFMetadataWriter(MetadataWriterPlugin):
         set_metadata(stream, mi)
 
 
-from calibre.customize.profiles import input_profiles, output_profiles
-
-
 def standalone_pdf_options():
     ans = set()
     for opt in PDFInput.options:
@@ -153,6 +178,7 @@ plugins = [
     DOCXInput,
     EPUBOutput,
     MOBIOutput,
+    AZW3Output,
     StandalonePDFOutput,
     TXTOutput,
     OEBOutput,

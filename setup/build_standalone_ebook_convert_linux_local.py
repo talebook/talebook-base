@@ -19,35 +19,54 @@ import sys
 import tarfile
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from standalone_build_common import (
+    FORBIDDEN_STANDALONE_CALIBRE_DIRS,
+    HELPER_BINS,
+    NO_QT_NAMES,
+    PYTHON_DYNLOAD_DROP_NAMES,
+    PYTHON_DYNLOAD_DROP_PREFIXES,
+    PYTHON_STDLIB_DROP_FILES,
+    QT_NAMED_PYTHON_FILES,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 PY_VER = f'{sys.version_info.major}.{sys.version_info.minor}'
 ELF_MAGIC = b'\x7fELF'
-NO_QT_NAMES = {'qt', 'PyQt6', 'PyQt6_sip', 'PyQt6_WebEngine'}
-DEBIAN_CALIBRE_ROOT = Path('/usr/lib/calibre')
-DEBIAN_CALIBRE_RESOURCES = Path('/usr/share/calibre')
+CALIBRE_CODE_ROOT = Path(os.environ.get('CALIBRE_STANDALONE_CODE_ROOT', '/usr/lib/calibre'))
+CALIBRE_RESOURCE_ROOT = Path(os.environ.get('CALIBRE_STANDALONE_RESOURCE_ROOT', '/usr/share/calibre'))
+CALIBRE_PLUGIN_ROOT = Path(os.environ.get('CALIBRE_STANDALONE_PLUGIN_ROOT', CALIBRE_CODE_ROOT / 'calibre' / 'plugins'))
 DEBIAN_DIST_PACKAGES = Path('/usr/lib/python3/dist-packages')
+PYTHON_PACKAGE_ROOTS = tuple(
+    Path(x) for x in os.environ.get(
+        'CALIBRE_STANDALONE_PYTHON_PACKAGE_ROOTS',
+        os.pathsep.join((
+            str(DEBIAN_DIST_PACKAGES),
+            f'/usr/local/lib/python{PY_VER}/dist-packages',
+            f'/usr/local/lib/python{PY_VER}/site-packages',
+        )),
+    ).split(os.pathsep) if x
+)
 CALIBRE_DROP_DIRS = {
-    'ai', 'db', 'devices', 'gui2', 'headless', 'library', 'plugins', 'scraper', 'srv', 'web',
+    'ai', 'devices', 'gui2', 'headless', 'plugins', 'scraper', 'srv', 'web',
 }
-FORBIDDEN_STANDALONE_CALIBRE_DIRS = frozenset({
-    'ai',
-    'devices',
-    'gui2',
-    'headless',
-    'scraper',
-    'srv',
-    'web',
-})
+CALIBRE_DROP_RUNTIME_NAMES = {'tests', '__pycache__'}
 RESOURCE_KEEP = frozenset({
     'calibre-ebook-root-CA.crt',
+    'catalog',
     'common-english-words.txt',
     'default_tweaks.py',
     'fonts',
+    'fts_sqlite.sql',
+    'fts_triggers.sql',
+    'jacket',
     'localization',
+    'metadata_sqlite.sql',
     'mime.types',
+    'notes_sqlite.sql',
     'pdf-preprint.js',
     'templates',
+    'user-agent-data.json',
 })
 PYTHON_STDLIB_DROP_DIRS = frozenset({
     '__phello__',
@@ -63,17 +82,6 @@ PYTHON_STDLIB_DROP_DIRS = frozenset({
     'venv',
     'wsgiref',
     'xmlrpc',
-})
-PYTHON_STDLIB_DROP_FILES = frozenset({
-    'antigravity.py',
-    'cProfile.py',
-    'doctest.py',
-    'pdb.py',
-    'profile.py',
-    'pstats.py',
-    'pydoc.py',
-    'this.py',
-    'turtle.py',
 })
 SITE_PACKAGES_ALLOWLIST = frozenset({
     'PIL',
@@ -96,9 +104,6 @@ SITE_PACKAGES_ALLOWLIST = frozenset({
     'webencodings',
 })
 CALIBRE_TOP_LEVEL_PACKAGES = ('calibre', 'polyglot', 'css_selectors', 'tinycss', 'odf')
-QT_NAMED_PYTHON_FILES = (
-    ('PIL', 'ImageQt.py'),
-)
 PLUGIN_ALLOWLIST = frozenset({
     'cPalmdoc.so',
     'fast_css_transform.so',
@@ -110,20 +115,15 @@ PLUGIN_ALLOWLIST = frozenset({
     'matcher.so',
     'podofo.so',
     'speedup.so',
+    'sqlite_custom.so',
+    'sqlite_extension.so',
     'uchardet.so',
     'unicode_names.so',
 })
-HELPER_BINS = ('pdftohtml', 'pdfinfo', 'pdftoppm', 'pdftotext')
 CJK_FONT_CANDIDATES = (
     '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
 )
-PYTHON_DYNLOAD_DROP_PREFIXES = ('_test', '_xxtest')
-PYTHON_DYNLOAD_DROP_NAMES = {
-    '_ctypes_test',
-    'xxlimited',
-    'xxlimited_35',
-}
 CORE_SYSTEM_LIB_PREFIXES = (
     'ld-linux',
     'libBrokenLocale.so',
@@ -140,8 +140,10 @@ CORE_SYSTEM_LIB_PREFIXES = (
 STANDALONE_OVERLAY_FILES = (
     'calibre/customize/standalone_builtins.py',
     'calibre/ebooks/docx/images.py',
+    'calibre/ebooks/conversion/standalone_common.py',
     'calibre/ebooks/conversion/plugins/standalone_pdf_output.py',
     'calibre/ebooks/conversion/standalone_binary.py',
+    'calibre/utils/img_shim.py',
     'calibre/utils/safe_atexit.py',
     'calibre/utils/standalone_img.py',
 )
@@ -165,6 +167,7 @@ def ignore_pycache(root, names):
 
 def ignore_calibre(root, names):
     ans = set(ignore_pycache(root, names))
+    ans.update(x for x in names if x in CALIBRE_DROP_RUNTIME_NAMES)
     if Path(root).name == 'calibre':
         ans.update(x for x in names if x in CALIBRE_DROP_DIRS)
     return ans
@@ -179,19 +182,24 @@ def ignore_stdlib(root, names):
 
 def copy_site_packages(dest):
     dest.mkdir(parents=True, exist_ok=True)
-    for item in DEBIAN_DIST_PACKAGES.iterdir():
-        name = item.name
-        if name not in SITE_PACKAGES_ALLOWLIST:
+    for root in PYTHON_PACKAGE_ROOTS:
+        if not root.exists():
             continue
-        if name in NO_QT_NAMES or name == '__pycache__' or name == 'pip' or name.startswith('pip-'):
-            continue
-        if name.endswith(('.dist-info', '.egg-info')):
-            continue
-        target = dest / name
-        if item.is_dir():
-            copytree(item, target, ignore=ignore_pycache)
-        elif item.suffix in {'.py', '.so'}:
-            shutil.copy2(item, target)
+        for item in root.iterdir():
+            name = item.name
+            if name not in SITE_PACKAGES_ALLOWLIST:
+                continue
+            if name in NO_QT_NAMES or name == '__pycache__' or name == 'pip' or name.startswith('pip-'):
+                continue
+            if name.endswith(('.dist-info', '.egg-info')):
+                continue
+            target = dest / name
+            if target.exists():
+                continue
+            if item.is_dir():
+                copytree(item, target, ignore=ignore_pycache)
+            elif item.suffix in {'.py', '.so'}:
+                shutil.copy2(item, target)
     prune_qt_named_python_files(dest)
 
 
@@ -206,7 +214,7 @@ def copy_calibre_from_debian(package):
     site_packages = package / 'lib' / 'python' / 'site-packages'
     site_packages.mkdir(parents=True, exist_ok=True)
     for name in CALIBRE_TOP_LEVEL_PACKAGES:
-        src = DEBIAN_CALIBRE_ROOT / name
+        src = CALIBRE_CODE_ROOT / name
         if not src.exists():
             continue
         if name == 'calibre':
@@ -216,9 +224,8 @@ def copy_calibre_from_debian(package):
 
     plugins_dest = site_packages / 'calibre' / 'plugins'
     plugins_dest.mkdir()
-    available_plugins = DEBIAN_CALIBRE_ROOT / 'calibre' / 'plugins'
     for name in sorted(PLUGIN_ALLOWLIST):
-        src = available_plugins / name
+        src = CALIBRE_PLUGIN_ROOT / name
         if not src.exists():
             raise SystemExit(f'Missing required native plugin: {src}')
         shutil.copy2(src, plugins_dest / name)
@@ -231,14 +238,9 @@ def copy_calibre_from_debian(package):
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)
     patch_debian_ui(site_packages / 'calibre' / 'customize' / 'ui.py')
+    patch_debian_img(site_packages / 'calibre' / 'utils' / 'img.py')
     patch_debian_mobi_files(site_packages)
-
-    for rel in ('calibre/library/__init__.py', 'calibre/library/comments.py', 'calibre/library/field_metadata.py',
-                'calibre/db/__init__.py', 'calibre/db/constants.py'):
-        src = DEBIAN_CALIBRE_ROOT / rel
-        dest = site_packages / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
+    write_talebook_runtime_overlays(site_packages)
 
 
 def patch_debian_ui(path):
@@ -258,6 +260,83 @@ def patch_debian_ui(path):
         'else:\n'
         '    from calibre.devices.interface import DevicePlugin',
     )
+    path.write_text(raw, encoding='utf-8')
+
+
+def write_talebook_runtime_overlays(site_packages):
+    (site_packages / 'sitecustomize.py').write_text('''\
+import os
+import sys
+
+os.environ.setdefault("CALIBRE_STANDALONE_CONVERTER", "1")
+os.environ.setdefault("CALIBRE_STANDALONE_FORBID_QT", "1")
+sys.resources_location = os.environ.get("TALEBOOK_CALIBRE_RESOURCES", "/usr/share/calibre")
+sys.extensions_location = os.environ.get("TALEBOOK_CALIBRE_PLUGINS", "/usr/lib/calibre/calibre/plugins")
+sys.executables_location = os.environ.get("TALEBOOK_CALIBRE_BIN", "/usr/bin")
+sys.system_plugins_location = None
+sys.frozen = False
+''', encoding='utf-8')
+
+    gui2 = site_packages / 'calibre' / 'gui2'
+    if gui2.exists():
+        shutil.rmtree(gui2)
+    gui2.mkdir()
+    (gui2 / '__init__.py').write_text('''\
+def must_use_qt(headless=True):
+    return None
+''', encoding='utf-8')
+
+
+QT_CORE_IMPORT = (
+    'from qt.core import QBuffer, QByteArray, QColor, QImage, QImageReader, '
+    'QImageWriter, QIODevice, QPixmap, Qt, QTransform, qRgba'
+)
+IMAGEOPS_IMPORT = 'from calibre_extensions import imageops'
+STANDALONE_IMG_OVERRIDE = (
+    "\n\nif os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':\n"
+    '    # No-Qt runtime: route Qt-backed image operations through the PIL-based backend.\n'
+    '    from calibre.utils.standalone_img import (  # noqa: E402,F401\n'
+    '        AnimatedGIF, NotImage, gif_data_to_png_data, image_and_format_from_data,\n'
+    '        image_from_data, image_to_data, png_data_to_gif_data, resize_image,\n'
+    '        resize_to_fit, save_cover_data_to, scale_image,\n'
+    '    )\n'
+)
+
+
+def patch_debian_img(path):
+    '''Make calibre.utils.img importable without Qt.
+
+    img.py unconditionally imports qt.core and the native imageops extension at
+    module load, so every ``from calibre.utils.img import ...`` explodes in the
+    no-Qt runtime. Only the standalone converter's own conversion paths were
+    patched to avoid it; talebook's webserver reaches many more sites (metadata
+    read/write, cover handling). Guard the two module-level imports so the module
+    loads, then override the Qt-backed public helpers with the PIL-based
+    standalone_img implementations. The remaining functions (optimize_jpeg /
+    encode_jpeg / optimize_png) are already Qt-free (they shell out) and degrade
+    gracefully when their helper binaries are absent.
+    '''
+    raw = path.read_text(encoding='utf-8')
+    if QT_CORE_IMPORT not in raw:
+        raise SystemExit(f'Cannot patch {path}: missing qt.core import')
+    if IMAGEOPS_IMPORT not in raw:
+        raise SystemExit(f'Cannot patch {path}: missing imageops import')
+    names = QT_CORE_IMPORT.split('import', 1)[1].strip()
+    raw = raw.replace(
+        QT_CORE_IMPORT,
+        "if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':\n"
+        f'    {" = ".join(n.strip() for n in names.split(","))} = None\n'
+        'else:\n'
+        f'    {QT_CORE_IMPORT}',
+    )
+    raw = raw.replace(
+        IMAGEOPS_IMPORT,
+        "if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':\n"
+        '    imageops = None\n'
+        'else:\n'
+        f'    {IMAGEOPS_IMPORT}',
+    )
+    raw += STANDALONE_IMG_OVERRIDE
     path.write_text(raw, encoding='utf-8')
 
 
@@ -328,7 +407,7 @@ def copy_resources(package):
     resources = package / 'resources'
     if resources.exists():
         shutil.rmtree(resources)
-    shutil.copytree(DEBIAN_CALIBRE_RESOURCES, resources, symlinks=False, ignore=ignore_pycache)
+    shutil.copytree(CALIBRE_RESOURCE_ROOT, resources, symlinks=False, ignore=ignore_pycache)
     for item in resources.iterdir():
         if item.name not in RESOURCE_KEEP:
             if item.is_dir():
@@ -518,12 +597,21 @@ def validate_standalone_code_surface(package):
     for path in package.rglob('*'):
         if not path.exists():
             continue
+        if path.parent.name == 'calibre' and path.name == 'gui2' and is_gui2_stub(path):
+            continue
         if path.parent.name == 'calibre' and path.name in FORBIDDEN_STANDALONE_CALIBRE_DIRS:
             bad.append(path)
         elif path.name == 'ImageQt.py' and path.parent.name == 'PIL':
             bad.append(path)
     if bad:
         raise SystemExit('Unexpected non-standalone code in package:\n' + '\n'.join(map(str, bad[:50])))
+
+
+def is_gui2_stub(path):
+    if not path.is_dir():
+        return False
+    entries = [x.name for x in path.iterdir()]
+    return entries == ['__init__.py']
 
 
 def validate_no_qt_dependencies(package):

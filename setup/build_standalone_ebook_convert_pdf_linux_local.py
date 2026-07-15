@@ -74,17 +74,22 @@ WEASY_OVERLAY_FILES = (
 
 def copy_weasy_site_packages(dest):
     dest.mkdir(parents=True, exist_ok=True)
-    for item in base.DEBIAN_DIST_PACKAGES.iterdir():
-        name = item.name
-        if name not in WEASY_SITE_PACKAGES:
+    for root in base.PYTHON_PACKAGE_ROOTS:
+        if not root.exists():
             continue
-        if name.endswith(('.dist-info', '.egg-info')):
-            continue
-        target = dest / name
-        if item.is_dir():
-            base.copytree(item, target, ignore=base.ignore_pycache)
-        elif item.suffix in {'.py', '.so'} or item.name.startswith('_cffi_backend.'):
-            shutil.copy2(item, target)
+        for item in root.iterdir():
+            name = item.name
+            if name not in WEASY_SITE_PACKAGES:
+                continue
+            if name.endswith(('.dist-info', '.egg-info')):
+                continue
+            target = dest / name
+            if target.exists():
+                continue
+            if item.is_dir():
+                base.copytree(item, target, ignore=base.ignore_pycache)
+            elif item.suffix in {'.py', '.so'} or item.name.startswith('_cffi_backend.'):
+                shutil.copy2(item, target)
 
 
 def copy_hyphen_data(dest):

@@ -2,11 +2,13 @@
 # License: GPLv3 Copyright: 2026, Kovid Goyal <kovid at kovidgoyal.net>
 
 import argparse
+import base64
 import os
 import re
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 
@@ -15,6 +17,16 @@ SUPPORTED_INPUT_FORMATS = frozenset({
     'pdf', 'prc', 'txt', 'zip',
 })
 CJK_RE = re.compile(r'[\u3400-\u9fff]')
+
+# A tiny valid 24x32 JPEG used to synthesize an image-only (scanned) book.
+SCANNED_PAGE_JPEG = base64.b64decode(
+    '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2Nj'
+    'Y2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAAgABgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIE'
+    'AwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWW'
+    'l5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQA'
+    'AQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJma'
+    'oqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCjRRRXnn0QUUUUAFFFFABRRRQB/9k='
+)
 
 
 def safe_name(path):
@@ -130,6 +142,73 @@ def run_case(converter, sample, output_dir, timeout):
     }
 
 
+def make_scanned_epub(path, image_count=3):
+    manifest = []
+    spine = []
+    pages = {}
+    for i in range(1, image_count + 1):
+        manifest.append(f'<item id="page{i}" href="page{i}.xhtml" media-type="application/xhtml+xml"/>')
+        manifest.append(f'<item id="img{i}" href="page{i}.jpg" media-type="image/jpeg"/>')
+        spine.append(f'<itemref idref="page{i}"/>')
+        pages[f'OEBPS/page{i}.xhtml'] = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<html xmlns="http://www.w3.org/1999/xhtml"><head><title/></head>'
+            f'<body><div><img src="page{i}.jpg" alt=""/></div></body></html>'
+        )
+    opf = f'''<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:title>Scanned Book</dc:title>
+    <dc:creator>Sample Matrix</dc:creator>
+    <dc:language>en</dc:language>
+    <dc:identifier id="uid">standalone-scanned-book</dc:identifier>
+  </metadata>
+  <manifest>{''.join(manifest)}</manifest>
+  <spine>{''.join(spine)}</spine>
+</package>'''
+    container = '''<?xml version="1.0" encoding="utf-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>'''
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, 'w') as zf:
+        zf.writestr('mimetype', 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+        zf.writestr('META-INF/container.xml', container)
+        zf.writestr('OEBPS/content.opf', opf)
+        for name, data in pages.items():
+            zf.writestr(name, data)
+        for i in range(1, image_count + 1):
+            zf.writestr(f'OEBPS/page{i}.jpg', SCANNED_PAGE_JPEG)
+
+
+def run_scanned_book_case(converter, output_dir, timeout, image_count=3):
+    # Regression case: an image-only book must become one page per image,
+    # not collapse into a one-page title PDF.
+    sample = output_dir / 'synthetic' / 'scanned-book.epub'
+    make_scanned_epub(sample, image_count)
+    output = output_dir / 'synthetic' / 'scanned-book.pdf'
+    if output.exists():
+        output.unlink()
+    rc, log = run_cmd([converter, str(sample), str(output)], timeout)
+    output_size = output.stat().st_size if output.exists() else 0
+    ok = rc == 0 and output_size > 0
+    stats = {'pages': 0, 'chars': 0, 'cjk': 0, 'questions': 0, 'message': first_line(log)}
+    if ok:
+        ok, stats = validate_pdf(converter, output, timeout)
+        if ok and stats['pages'] < image_count:
+            ok = False
+            stats['message'] = f"scanned book collapsed to {stats['pages']} page(s), expected >= {image_count}"
+    return {
+        'sample': 'synthetic/scanned-book.epub',
+        'input_ext': 'epub',
+        'expected': 'success',
+        'returncode': rc,
+        'output_size': output_size,
+        'status': 'ok' if ok else 'fail',
+        **stats,
+    }
+
+
 def main(argv=sys.argv):
     parser = argparse.ArgumentParser(description='Verify standalone ebook-convert-pdf against a sample corpus')
     parser.add_argument('converter')
@@ -143,6 +222,7 @@ def main(argv=sys.argv):
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = [run_case(converter, sample, output_dir, args.timeout) for sample in sample_files(samples_dir)]
+    rows.append(run_scanned_book_case(converter, output_dir, args.timeout))
     report = output_dir / 'pdf-sample-results.tsv'
     headers = (
         'status', 'expected', 'returncode', 'input_ext', 'output_size',

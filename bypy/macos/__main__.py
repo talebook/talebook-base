@@ -33,38 +33,27 @@ QT_DLLS, QT_PLUGINS, PYQT_MODULES = iv['QT_DLLS'], iv['QT_PLUGINS'], iv['PYQT_MO
 QT_MAJOR = iv['QT_MAJOR']
 py_ver = '.'.join(map(str, python_major_minor_version()))
 sign_app = runpy.run_path(join(dirname(abspath(__file__)), 'sign.py'))['sign_app']
-MACOS_BINARY_FLAVOR = os.environ.get('CALIBRE_MACOS_BINARY_FLAVOR', '')
-STANDALONE_NO_QT_PACKAGES = {'PyQt6', 'PyQt6_sip', 'PyQt6_WebEngine', 'qt'}
-STANDALONE_FORBIDDEN_QT_ARTIFACTS = {
-    'qt', 'PyQt6', 'PyQt6_sip', 'PyQt6_WebEngine', 'QtWebEngineProcess',
-    'qtwebengine_locales',
-}
-STANDALONE_CALIBRE_DROP_DIRS = {
-    'ai', 'devices', 'gui2', 'headless', 'scraper', 'srv', 'web',
-}
-STANDALONE_RESOURCE_KEEP = frozenset({
-    'calibre-ebook-root-CA.crt',
-    'common-english-words.txt',
-    'default_tweaks.py',
-    'fonts',
-    'localization',
-    'mime.types',
-    'pdf-preprint.js',
-    'templates',
-})
+def _load_standalone_common():
+    import importlib.util
+    path = join(dirname(dirname(abspath(__file__))), 'standalone_common.py')
+    spec = importlib.util.spec_from_file_location('bypy_standalone_common', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+standalone_common = _load_standalone_common()
+STANDALONE_NO_QT_PACKAGES = standalone_common.STANDALONE_NO_QT_PACKAGES
+STANDALONE_CALIBRE_DROP_DIRS = standalone_common.STANDALONE_CALIBRE_DROP_DIRS
+STANDALONE_QT_NAMED_PYTHON_FILES = standalone_common.STANDALONE_QT_NAMED_PYTHON_FILES
+prune_standalone_resources = standalone_common.prune_standalone_resources
+filter_standalone_calibre_extensions = standalone_common.filter_standalone_calibre_extensions
+IS_STANDALONE = standalone_common.is_standalone_build()
 STANDALONE_CJK_FONT_CANDIDATES = (
     '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
     '/System/Library/Fonts/STHeiti Light.ttc',
     '/System/Library/Fonts/STHeiti Medium.ttc',
 )
-STANDALONE_QT_NAMED_PYTHON_FILES = {
-    ('PIL', 'ImageQt.py'),
-}
-STANDALONE_CALIBRE_EXTENSIONS = {
-    'cPalmdoc', 'fast_css_transform', 'fast_html_entities', 'freetype',
-    'html_as_json', 'hyphen', 'icu', 'matcher', 'podofo', 'speedup',
-    'translator', 'uchardet', 'unicode_names',
-}
 
 QT_PREFIX = join(PREFIX, 'qt')
 QT_FRAMEWORKS = [x.replace(f'{QT_MAJOR}', '') for x in QT_DLLS]
@@ -76,7 +65,7 @@ ENV = dict(
     OPENSSL_ENGINES='@executable_path/../Frameworks/engines-3',
     OPENSSL_MODULES='@executable_path/../Frameworks/ossl-modules',
 )
-if MACOS_BINARY_FLAVOR == 'ebook-convert':
+if IS_STANDALONE:
     ENV['CALIBRE_STANDALONE_CONVERTER'] = '1'
 APPNAME, VERSION = calibre_constants['appname'], calibre_constants['version']
 basenames, main_modules, main_functions = calibre_constants['basenames'], calibre_constants['modules'], calibre_constants['functions']
@@ -87,7 +76,7 @@ STANDALONE_APPNAME = 'ebook-convert'
 
 
 def app_bundle_name():
-    return STANDALONE_APPNAME if MACOS_BINARY_FLAVOR == 'ebook-convert' else APPNAME
+    return STANDALONE_APPNAME if IS_STANDALONE else APPNAME
 
 
 def generate_icns(light_iconset: str, dark_iconset: str, output_path: str) -> None:
@@ -207,7 +196,7 @@ def strip_files(files, argv_max=(256 * 1024)):
 
 
 def validate_standalone_app_surface(contents_dir):
-    validate_no_qt_artifacts(contents_dir)
+    standalone_common.validate_no_qt_artifacts(contents_dir, what='app')
     exe_dir = join(contents_dir, 'MacOS')
     found = set(os.listdir(exe_dir))
     forbidden = set(calibre_constants['basenames']['console']) | set(calibre_constants['basenames']['gui']) | {'calibre_postinstall'}
@@ -220,59 +209,10 @@ def validate_standalone_app_surface(contents_dir):
         raise SystemExit(f'Missing standalone executable: {path}')
 
 
-def is_forbidden_qt_artifact(name):
-    return name in STANDALONE_FORBIDDEN_QT_ARTIFACTS or (
-        name.startswith(('Qt', 'libQt')) and name.endswith(('.so', '.dylib', '.framework'))
-    )
-
-
-def validate_no_qt_artifacts(root):
-    for base, dirs, files in os.walk(root):
-        bad = sorted(x for x in set(dirs) | set(files) if is_forbidden_qt_artifact(x))
-        if bad:
-            raise SystemExit(f'Unexpected Qt artifacts in standalone app under {base}: {bad}')
-
-
-def prune_standalone_resources(resources):
-    if MACOS_BINARY_FLAVOR != 'ebook-convert':
-        return
-    for name in os.listdir(resources):
-        path = join(resources, name)
-        if name not in STANDALONE_RESOURCE_KEEP:
-            if os.path.isdir(path):
-                shutil.rmtree(path)
-            else:
-                os.remove(path)
-
-
 def copy_standalone_cjk_font(resources):
-    if MACOS_BINARY_FLAVOR != 'ebook-convert':
-        return
-    fonts = join(resources, 'fonts')
-    os.makedirs(fonts, exist_ok=True)
-    candidates = [os.environ.get('CALIBRE_STANDALONE_CJK_FONT'), *STANDALONE_CJK_FONT_CANDIDATES]
-    for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            _base, ext = os.path.splitext(candidate)
-            shutil.copyfile(candidate, join(fonts, 'standalone-cjk' + (ext or '.ttf')))
-            return
-    raise SystemExit('Missing CJK font for standalone PDF output. Set CALIBRE_STANDALONE_CJK_FONT to a CJK TrueType/TTC font.')
-
-
-def filter_standalone_calibre_extensions(dest, ext_map):
-    if MACOS_BINARY_FLAVOR != 'ebook-convert':
-        return ext_map
-    for path in glob.glob(join(dest, '*.so')):
-        name = basename(path).partition('.')[0]
-        if name not in STANDALONE_CALIBRE_EXTENSIONS:
-            os.remove(path)
-    ans = {}
-    for key, path in ext_map.items():
-        name = basename(path).partition('.')[0]
-        key_name = str(key).rpartition('.')[-1]
-        if name in STANDALONE_CALIBRE_EXTENSIONS or key_name in STANDALONE_CALIBRE_EXTENSIONS:
-            ans[key] = path
-    return ans
+    standalone_common.copy_standalone_cjk_font(
+        resources, STANDALONE_CJK_FONT_CANDIDATES,
+        'Set CALIBRE_STANDALONE_CJK_FONT to a CJK TrueType/TTC font.')
 
 
 def flush(func):
@@ -322,7 +262,7 @@ class Freeze:
             self.add_python_framework()
             self.add_site_packages()
             self.add_stdlib()
-            if MACOS_BINARY_FLAVOR != 'ebook-convert':
+            if not IS_STANDALONE:
                 self.add_qt_frameworks()
             self.add_calibre_plugins()
             self.add_podofo()
@@ -338,11 +278,11 @@ class Freeze:
         self.create_exe()
         if not test_launchers and not self.dont_strip:
             self.strip_files()
-        if not test_launchers and MACOS_BINARY_FLAVOR != 'ebook-convert':
+        if not test_launchers and not IS_STANDALONE:
             self.create_gui_apps()
 
         self.run_tests()
-        volname = APPNAME + ('-ebook-convert' if MACOS_BINARY_FLAVOR == 'ebook-convert' else '') + '-' + VERSION
+        volname = APPNAME + ('-ebook-convert' if IS_STANDALONE else '') + '-' + VERSION
         ret = self.makedmg(self.build_dir, volname)
 
         return ret
@@ -350,7 +290,7 @@ class Freeze:
     @flush
     def run_tests(self):
         print('Running tests...', flush=True)
-        if MACOS_BINARY_FLAVOR == 'ebook-convert':
+        if IS_STANDALONE:
             validate_standalone_app_surface(self.contents_dir)
             subprocess.check_call([
                 sys.executable, join(CALIBRE_DIR, 'setup', 'standalone_ebook_convert_smoke.py'),
@@ -375,7 +315,7 @@ class Freeze:
     def create_exe(self):
         print('\nCreating launchers')
         programs = {}
-        if MACOS_BINARY_FLAVOR == 'ebook-convert':
+        if IS_STANDALONE:
             progs = [('ebook-convert', 'calibre.ebooks.conversion.standalone_binary', 'main', 'console')]
         else:
             progs = []
@@ -602,7 +542,7 @@ class Freeze:
             LSApplicationCategoryType='public.app-category.productivity',
             LSEnvironment=env
         )
-        if MACOS_BINARY_FLAVOR == 'ebook-convert':
+        if IS_STANDALONE:
             pl.update(
                 CFBundleDisplayName=STANDALONE_APPNAME,
                 CFBundleName=STANDALONE_APPNAME,
@@ -645,7 +585,7 @@ class Freeze:
         print('\nAdding libjpeg, libpng, libwebp, optipng and mozjpeg')
         for x in ('jpeg.8', 'png16.16', 'webp.7', 'webpmux.3', 'webpdemux.2', 'sharpyuv.0'):
             self.install_dylib(join(PREFIX, 'lib', 'lib%s.dylib' % x))
-        if MACOS_BINARY_FLAVOR == 'ebook-convert':
+        if IS_STANDALONE:
             return
         for x in 'optipng', 'JxrDecApp', 'cwebp':
             self.install_dylib(join(PREFIX, 'bin', x), set_id=False, dest=self.helpers_dir)
@@ -695,7 +635,7 @@ class Freeze:
             'brotlicommon.1', 'brotlidec.1', 'brotlienc.1', 'zstd.1', 'jbig.2.1', 'tiff.6',
             'crypto.3', 'ssl.3', 'iconv.2', 'espeak-ng.1', 'onnxruntime.1.23.2',  # 'ltdl.7'
         )
-        if MACOS_BINARY_FLAVOR == 'ebook-convert':
+        if IS_STANDALONE:
             libs = (
                 'sqlite3', 'icudata.78', 'icui18n.78', 'icuio.78', 'icuuc.78',
                 'hyphen.0', 'uchardet.0', 'xslt.1', 'exslt.0', 'xml2.16', 'z.1',
@@ -716,7 +656,7 @@ class Freeze:
                     dylib = join(dest, dylib)
                     self.set_id(dylib, self.FID + '/' + x + '/' + os.path.basename(dylib))
                     self.fix_dependencies_in_lib(dylib)
-        if MACOS_BINARY_FLAVOR != 'ebook-convert':
+        if not IS_STANDALONE:
             # espeak voices used for piper phonemization
             shutil.copytree(join(PREFIX, 'share', 'espeak-ng-data'), join(self.resources_dir, 'espeak-ng-data'))
 
@@ -784,7 +724,7 @@ class Freeze:
                 ext = os.path.splitext(y)[1]
                 if ext not in allowed_exts or (not ext and not os.path.isdir(join(root, y))):
                     ans.append(y)
-            if MACOS_BINARY_FLAVOR == 'ebook-convert':
+            if IS_STANDALONE:
                 if basename(root) == 'calibre':
                     ans.extend(y for y in files if y in STANDALONE_CALIBRE_DROP_DIRS)
                 for package, filename in STANDALONE_QT_NAMED_PYTHON_FILES:
@@ -805,7 +745,7 @@ class Freeze:
 
     @flush
     def filter_package(self, name):
-        if MACOS_BINARY_FLAVOR == 'ebook-convert' and name in STANDALONE_NO_QT_PACKAGES:
+        if IS_STANDALONE and name in STANDALONE_NO_QT_PACKAGES:
             return True
         return name in ('Cython', 'modulegraph', 'macholib', 'py2app',
                         'bdist_mpkg', 'altgraph')
