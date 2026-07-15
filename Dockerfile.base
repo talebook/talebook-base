@@ -42,35 +42,10 @@ COPY --chmod=0755 packaging/extract-debian-packages.sh /usr/local/bin/extract-de
 RUN /usr/local/bin/extract-debian-packages /var/cache/apt/archives /opt/debian-root
 
 
-# 第二阶段把解包树作为临时 Debian root，执行白名单裁剪、源码覆盖、ELF 依赖闭包
-# 收集和无 Qt 校验。输出使用最终系统路径，不携带私有 Python。
-FROM debian:13-slim AS runtime-build
-ENV DEBIAN_FRONTEND=noninteractive
-ENV CALIBRE_STANDALONE_CODE_ROOT=/usr/lib/calibre
-ENV CALIBRE_STANDALONE_RESOURCE_ROOT=/usr/share/calibre
-ENV CALIBRE_STANDALONE_PLUGIN_ROOT=/usr/lib/calibre/calibre/plugins
-ENV CALIBRE_STANDALONE_PYTHON_PACKAGE_ROOTS=/usr/lib/python3/dist-packages
-
-COPY --from=deb-packages /opt/debian-root/ /
-RUN ldconfig
-
-WORKDIR /src/calibre
-COPY setup/ setup/
-COPY src/ src/
-COPY resources/ resources/
-COPY --chmod=0755 packaging/build-system-runtime-from-debian.sh packaging/build-system-runtime-from-debian.sh
-
-RUN packaging/build-system-runtime-from-debian.sh /opt/talebook-system-root && \
-    rm -rf /src/calibre
-
-
-# ----------------------------------------
-# 最终基础镜像使用 Debian Python。下游 Talebook 仍可通过 pip 安装 requirements，
-# 但最终镜像禁止安装完整 calibre / PyQt / Qt runtime。
-FROM debian:13-slim AS base
+# 最终系统层只安装运行依赖。编译器和 Python headers 放在独立 wheel builder，
+# 不进入发布镜像。
+FROM debian:13-slim AS runtime-system
 ARG BUILD_COUNTRY=""
-ARG TARGETARCH
-ARG TARGETVARIANT
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
@@ -105,23 +80,74 @@ RUN apt-get update && \
         procps \
         python3 \
         python3-apsw \
-        python3-dev \
         python3-pip \
         python3-setuptools \
-        python3-venv \
         python3-xxhash \
         sqlite3 \
         supervisor \
-        tzdata \
-        build-essential && \
+        tzdata && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+
+# Talebook 当前 requirements 中 quickjs 没有可依赖的通用预编译 wheel。只在此阶段
+# 安装工具链并构建 wheel；最终层预装 wheel 后，上层原有 pip install -r 会直接复用。
+FROM runtime-system AS python-wheel-build
+ARG QUICKJS_VERSION="1.19.4"
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        python3-dev \
+        python3-wheel && \
+    python3 -m pip wheel \
+        --no-cache-dir \
+        --no-build-isolation \
+        --no-deps \
+        --wheel-dir /opt/wheels \
+        "quickjs==${QUICKJS_VERSION}"
+
+
+# 运行时组装阶段把解包树作为临时 Debian root，执行白名单裁剪、源码覆盖、ELF 依赖闭包
+# 收集和无 Qt 校验。输出使用最终系统路径，不携带私有 Python。
+FROM debian:13-slim AS runtime-build
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CALIBRE_STANDALONE_CODE_ROOT=/usr/lib/calibre
+ENV CALIBRE_STANDALONE_RESOURCE_ROOT=/usr/share/calibre
+ENV CALIBRE_STANDALONE_PLUGIN_ROOT=/usr/lib/calibre/calibre/plugins
+ENV CALIBRE_STANDALONE_PYTHON_PACKAGE_ROOTS=/usr/lib/python3/dist-packages
+
+COPY --from=deb-packages /opt/debian-root/ /
+# 用最终系统层作为去重参照；这里只进入中间构建层。
+COPY --from=runtime-system /usr/lib/ /opt/final-system/usr/lib/
+RUN ldconfig
+
+WORKDIR /src/calibre
+COPY setup/ setup/
+COPY src/ src/
+COPY resources/ resources/
+COPY --chmod=0755 packaging/build-system-runtime-from-debian.sh packaging/build-system-runtime-from-debian.sh
+
+RUN packaging/build-system-runtime-from-debian.sh /opt/talebook-system-root /opt/final-system && \
+    rm -rf /src/calibre
+
+
+# ----------------------------------------
+# 最终基础镜像复用只含运行依赖的 Debian 系统层。
+FROM runtime-system AS base
+ARG TARGETARCH
+ARG TARGETVARIANT
 
 COPY --from=runtime-build /opt/talebook-system-root/ /
 COPY --chmod=0755 packaging/entrypoints/ebook-convert packaging/entrypoints/ebook-convert-pdf packaging/entrypoints/calibredb /usr/bin/
 COPY --chmod=0644 packaging/entrypoints/*.py /usr/lib/calibre/
 
-RUN python3 -c "import apsw, xxhash; assert apsw and xxhash" && \
+RUN --mount=from=python-wheel-build,source=/opt/wheels,target=/tmp/talebook-wheels,ro \
+    python3 -m pip install \
+        --no-cache-dir \
+        --no-index \
+        /tmp/talebook-wheels/quickjs-*.whl && \
+    python3 -c "import apsw, quickjs, xxhash; assert apsw and quickjs and xxhash" && \
     python3 -m pip --version && \
     test ! -e /usr/lib/talebook-calibre-runtime && \
     test -f /usr/lib/calibre/calibre/__init__.py && \

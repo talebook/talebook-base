@@ -2,6 +2,7 @@
 set -eu
 
 OUTPUT="${1:-/opt/talebook-system-root}"
+REFERENCE_ROOT="${2:-}"
 STAGING="/tmp/talebook-calibre-build"
 
 rm -rf "$OUTPUT" "$STAGING"
@@ -28,6 +29,30 @@ for library in "$STAGING"/lib/*.so*; do
     test -e "$library" || continue
     cp -a "$library" "$OUTPUT/usr/lib/talebook-calibre/lib/"
 done
+
+pruned=0
+if test -n "$REFERENCE_ROOT" && test -d "$REFERENCE_ROOT"; then
+    for library in "$OUTPUT"/usr/lib/talebook-calibre/lib/*.so*; do
+        test -f "$library" || continue
+        test ! -L "$library" || continue
+        match="$(
+            find "$REFERENCE_ROOT" -type f -name "$(basename "$library")" \
+                -exec cmp -s "$library" {} \; -print -quit
+        )"
+        test -n "$match" || continue
+
+        canonical="$(readlink -f "$library")"
+        for candidate in "$OUTPUT"/usr/lib/talebook-calibre/lib/*.so*; do
+            test -L "$candidate" || continue
+            if test "$(readlink -f "$candidate")" = "$canonical"; then
+                rm -f "$candidate"
+            fi
+        done
+        rm -f "$library"
+        pruned=$((pruned + 1))
+    done
+fi
+echo "Pruned exact system library copies: $pruned"
 
 if test -d "$STAGING/etc/fonts"; then
     cp -a "$STAGING/etc/fonts/." "$OUTPUT/etc/talebook-calibre/fonts/"

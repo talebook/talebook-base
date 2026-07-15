@@ -94,9 +94,12 @@ jobs:
       - name: Run image smoke test
         env:
           TEST_IMAGE: ${{ env.IMAGE_NAME }}:ci-${{ matrix.arch }}
+          MAX_USR_MIB: '400'
         run: |
+          docker image inspect "$TEST_IMAGE" --format 'Image size: {{.Size}} bytes'
           docker run --rm \
             --platform "${{ matrix.platform }}" \
+            -e "TALEBOOK_MAX_USR_MIB=$MAX_USR_MIB" \
             -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
             -w "$GITHUB_WORKSPACE" \
             --entrypoint /bin/sh \

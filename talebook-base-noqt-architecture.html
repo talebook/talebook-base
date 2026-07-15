@@ -463,7 +463,7 @@
     <section id="stages">
       <h2 class="section-title"><span class="num">02</span><span>构建期下载 Qt，运行期为什么能没有</span></h2>
       <p><code>Dockerfile.base</code> 的第一阶段基于 <code>debian:13-slim</code>，通过 apt 的 <code>--download-only</code> 模式获取 <code>calibre</code>、<code>weasyprint</code> 与 <code>poppler-utils</code> 的依赖闭包。apt 会下载 Qt 依赖，但不会运行 dpkg 安装脚本；<code>extract-debian-packages.sh</code> 随后按包名跳过 Qt/PyQt，只解开其它 <code>.deb</code>。</p>
-      <p><code>packaging/build-system-runtime-from-debian.sh</code> 再调用白名单与 ELF 闭包构建器，并把结果转换成最终系统路径。最后一阶段仍从 <code>debian:13-slim</code> 开始，通过 apt 安装系统 <code>python3</code>/<code>python3-pip</code> 和服务依赖，再复制裁剪后的代码、资源、helper 与原生库；没有私有 Python 解释器。</p>
+      <p><code>packaging/build-system-runtime-from-debian.sh</code> 再调用白名单与 ELF 闭包构建器，并把结果转换成最终系统路径。它以最终 Debian 系统层为参照，只删除文件内容完全相同的动态库副本。独立的 <code>python-wheel-build</code> 阶段用编译工具链生成 QuickJS wheel；最后一阶段复用只含运行依赖的 <code>runtime-system</code>，通过只读 BuildKit mount 安装 wheel，再叠加裁剪后的代码、资源、helper 与原生库。私有 Python、编译器、headers 和 wheel 中间文件都不会进入发布镜像。</p>
 
       <div class="cards">
         <article class="card">
@@ -483,6 +483,11 @@
         <p>“最终镜像没有 Qt”与“构建镜像完全不下载 Qt”是两件事。当前方案优化的是发布面的体积、攻击面和运行时耦合；构建阶段仍会临时下载完整 Calibre 依赖。</p>
       </div>
 
+      <div class="callout olive">
+        <span class="callout-label">体积结果</span>
+        <p>本地 arm64 镜像从 740,220,119 bytes（约 706 MiB）降到 356,152,506 bytes（约 340 MiB），减少 51.9%；<code>/usr</code> 从 701 MiB 降到 346 MiB。主要收益来自移出约 345 MiB 的编译工具链，以及删除 45 份与系统层完全相同的动态库。</p>
+      </div>
+
       <pre><code># Dockerfile.base 的关键边界（概念化）
 FROM debian:13-slim AS deb-packages
 RUN apt-get install --download-only calibre weasyprint poppler-utils
@@ -490,10 +495,12 @@ RUN extract-debian-packages /var/cache/apt/archives /opt/debian-root
 
 FROM debian:13-slim AS runtime-build
 COPY --from=deb-packages /opt/debian-root/ /
-RUN build-system-runtime-from-debian.sh /opt/talebook-system-root
+RUN build-system-runtime-from-debian.sh /opt/talebook-system-root /opt/final-system
 
-FROM debian:13-slim AS base
-RUN apt-get install python3 python3-pip ...
+FROM runtime-system AS python-wheel-build
+RUN apt-get install build-essential python3-dev ... &amp;&amp; pip wheel quickjs
+
+FROM runtime-system AS base
 COPY --from=runtime-build /opt/talebook-system-root/ /</code></pre>
     </section>
 
@@ -688,7 +695,7 @@ PIP_BREAK_SYSTEM_PACKAGES=1</code></pre>
 
       <div class="callout olive">
         <span class="callout-label">兼容而不污染</span>
-        <p><code>/usr/lib/calibre</code> 和 <code>/usr/share/calibre</code> 现在是真实目录，不是指向私有运行时的符号链接。Calibre 的 Python 代码与系统 Python 解耦，但解释器、标准库、pip、APSW 和 xxhash 都由 Debian 统一管理。</p>
+        <p><code>/usr/lib/calibre</code> 和 <code>/usr/share/calibre</code> 现在是真实目录，不是指向私有运行时的符号链接。Calibre 的 Python 代码与系统 Python 解耦；解释器、标准库、pip、APSW 和 xxhash 由 Debian 统一管理，QuickJS 则由 builder 预编译后安装到同一个系统 Python。</p>
       </div>
     </section>
 
@@ -697,16 +704,17 @@ PIP_BREAK_SYSTEM_PACKAGES=1</code></pre>
       <p>无 Qt 运行时需要证明两个互补命题：Qt 确实没有进入产物；保留下来的功能确实能在最终镜像中工作。项目把验证分为四类。</p>
       <ol class="checklist">
         <li><strong>构建产物检查：</strong>拒绝 Qt 命名文件、被禁止的 Calibre 目录、Pillow 的 <code>ImageQt.py</code>、断裂符号链接和非 root 所有者。</li>
-        <li><strong>动态依赖检查：</strong>扫描所有 ELF 的 <code>ldd</code> 结果，拒绝 <code>Qt*</code> 与 <code>libQt*</code> soname。</li>
-        <li><strong>运行时隔离检查：</strong>系统 Python 的 <code>import PyQt6</code> 必须失败；standalone 入口内部另有 import guard。</li>
+        <li><strong>动态依赖检查：</strong>扫描所有原生扩展与可执行文件的 <code>ldd</code> 结果，拒绝缺失依赖、<code>Qt*</code> 与 <code>libQt*</code> soname。</li>
+        <li><strong>运行时隔离检查：</strong>系统 Python 的 <code>import PyQt6</code> 必须失败；standalone 入口内部另有 import guard；最终镜像不得安装 gcc 与开发工具链。</li>
         <li><strong>功能 smoke：</strong>验证三个公共命令、书库创建与列表、EPUB→MOBI/AZW3/PDF、直接 Weasy PDF、CJK 与 emoji 文本、PDF 中文回读。</li>
+        <li><strong>体积门禁：</strong><code>/usr</code> 不得超过 400 MiB，CI 同时打印各架构的 Docker image size 便于追踪。</li>
       </ol>
 
       <p>GitHub Actions 工作流在 <code>linux/amd64</code> 和 <code>linux/arm64</code> 矩阵中构建镜像并运行同一份 <code>packaging/smoke-test.sh</code>。发布 job 依赖 test job，且只在手动触发并明确选择 <code>push_image</code> 时执行；普通 PR 和分支 push 只测试、不推送。</p>
 
       <div class="callout">
         <span class="callout-label">当前验证口径</span>
-        <p>系统 Python 新方案已在本地 arm64 Docker 镜像完整通过上述 smoke，且 Fontconfig/CJK PDF 回读正常。CI 工作流继续负责独立验证 amd64 与 arm64；后续修改白名单、Debian Calibre 版本或 PDF 后端时应重新运行完整镜像测试。</p>
+        <p>优化后的系统 Python 方案已在本地 arm64 Docker 镜像完整通过上述 smoke，QuickJS 可由上层 <code>pip install -r</code> 直接复用，且 Fontconfig/CJK PDF 回读正常。当前镜像约 340 MiB、<code>/usr</code> 为 346 MiB；CI 工作流继续负责独立验证 amd64 与 arm64。</p>
       </div>
     </section>
 

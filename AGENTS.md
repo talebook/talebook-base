@@ -50,7 +50,9 @@ make test
 `make test` builds `Dockerfile.base` and runs `packaging/smoke-test.sh` in the
 resulting image. The image smoke must verify all three public commands, the
 absence of PyQt/Qt, Calibre database creation/listing, and EPUB conversion to
-MOBI, AZW3, and PDF, including CJK PDF text extraction.
+MOBI, AZW3, and PDF, including CJK PDF text extraction. It must also import the
+prebuilt QuickJS module, reject missing/Qt-linked native dependencies, prove
+that no compiler toolchain remains, and keep `/usr` at or below 400 MiB.
 
 When changing supported formats or PDF behavior, update the corresponding
 sample matrix and both standalone design documents. The PDF sample matrix also
@@ -65,6 +67,12 @@ contains a synthetic image-only EPUB regression case.
 - Keep selected Python modules in `/usr/lib/calibre`, resources in
   `/usr/share/calibre`, native libraries in `/usr/lib/talebook-calibre/lib`, and
   Poppler helpers in `/usr/lib/talebook-calibre/bin`.
+- Build QuickJS in the `python-wheel-build` stage and install the wheel into the
+  final system Python. Do not install `build-essential`, `python3-dev`,
+  `python3-venv`, or `gcc` in the published image.
+- Prune native libraries from the Calibre closure only when an exact byte copy
+  exists in the final Debian system layer; the final `ldd` scan is the safety
+  net for this de-duplication.
 - The package pool stage may use `apt-get --download-only`, but must not install
   Calibre or Qt. `packaging/extract-debian-packages.sh` extracts `.deb` files and
   rejects Qt/PyQt packages before the allowlist/ELF-closure build runs.
@@ -92,3 +100,8 @@ publishing. Publishing must be limited to explicit release events or manual
 dispatch, use the repository's configured registry credentials, and build the
 requested target architectures without silently weakening the local smoke
 coverage.
+
+The arm64 reference built on 2026-07-15 is 356,152,506 bytes (about 340 MiB),
+with `/usr` using 346 MiB. CI explicitly passes the 400 MiB `/usr` budget to the
+smoke test. Treat this as a regression limit, not a target to consume or relax
+without a measured explanation.

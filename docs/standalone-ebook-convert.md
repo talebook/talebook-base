@@ -176,17 +176,27 @@ Linux 脚本中特别排除了 Debian 中依赖 Qt 的 native 插件，例如 `i
 
 ### Talebook Debian 系统运行时
 
-镜像构建使用两层取材：
+镜像构建把取材、编译和发布分开：
 
 1. `packaging/extract-debian-packages.sh` 从 apt 下载缓存逐个读取包名，跳过
    `libqt*`、`qt*`、`pyqt*` 和 `python3-pyqt*`，仅用 `dpkg-deb -x` 解包其它包。
 2. `packaging/build-system-runtime-from-debian.sh` 调用现有白名单/ELF 闭包构建器生成
    临时组合包，再把需要的代码、资源、helper 和 `.so` 投放到最终系统路径；临时包中的
-   Python 解释器和标准库不会进入最终镜像。
+   Python 解释器和标准库不会进入最终镜像。组装器会以最终 Debian 系统层为参照，删除
+   45 份内容完全相同的 `.so` 副本，随后由最终镜像的全量 `ldd` smoke 验证依赖仍闭合。
+3. `python-wheel-build` 独立安装 `build-essential` 和 `python3-dev`，只编译 Talebook
+   `requirements.txt` 需要的 QuickJS wheel。最终层通过 BuildKit 只读 mount 安装 wheel，
+   编译器、headers、wheel 文件本身及 builder apt 层都不会进入发布镜像。
 
-最终层重新基于 `debian:13-slim`，通过 apt 安装系统 Python、pip 及 Talebook 服务
-依赖，再复制上述裁剪结果。`PIP_BREAK_SYSTEM_PACKAGES=1` 保持旧 Talebook 镜像的
-`pip install -r` 行为。
+`runtime-system` 基于 `debian:13-slim`，只通过 apt 安装系统 Python、pip 及 Talebook
+服务运行依赖；最终层直接复用它并叠加上述裁剪结果。预装 QuickJS 后，上层原有
+`pip install -r` 会把它识别为已满足；`PIP_BREAK_SYSTEM_PACKAGES=1` 保持旧 Talebook
+镜像的安装行为。
+
+2026-07-15 的本地 arm64 基线从 740,220,119 bytes（约 706 MiB）降到
+356,152,506 bytes（约 340 MiB），减少 51.9%；`/usr` 从 701 MiB 降到 346 MiB。
+`packaging/smoke-test.sh` 与双架构 CI 将 `/usr <= 400 MiB` 作为回归门禁，并拒绝最终
+镜像出现 `build-essential`、`python3-dev`、`python3-venv` 或 `gcc`。
 
 ### 正式构建（bypy 集成）
 
