@@ -2,11 +2,12 @@
   "checkpoint_id": "99a0065c24f7",
   "strategy": "manual-commit",
   "branch": "only-ebook-convert",
-  "checkpoints_count": 1,
+  "checkpoints_count": 8,
   "files_touched": [
     ".gitignore",
     "bypy/linux/__main__.py",
     "bypy/macos/__main__.py",
+    "bypy/standalone_common.py",
     "chats/2026-07-02-standalone-ebook-convert-fix-brief.md",
     "chats/2026-07-02-standalone-ebook-convert-qa.md",
     "chats/2026-07-03-standalone-ebook-convert-fix-validation-report.md",
@@ -17,17 +18,20 @@
     "setup/build_standalone_ebook_convert_linux_local.py",
     "setup/build_standalone_ebook_convert_local.py",
     "setup/build_standalone_ebook_convert_pdf_linux_local.py",
+    "setup/standalone_build_common.py",
     "setup/standalone_ebook_convert_pdf_sample_matrix.py",
     "setup/standalone_ebook_convert_smoke.py",
     "src/calibre/customize/standalone_builtins.py",
     "src/calibre/customize/ui.py",
     "src/calibre/ebooks/conversion/plugins/standalone_pdf_output.py",
     "src/calibre/ebooks/conversion/standalone_binary.py",
+    "src/calibre/ebooks/conversion/standalone_common.py",
     "src/calibre/ebooks/conversion/weasy_pdf_binary.py",
     "src/calibre/ebooks/docx/images.py",
     "src/calibre/ebooks/mobi/reader/mobi6.py",
     "src/calibre/ebooks/mobi/utils.py",
-    "src/calibre/ebooks/mobi/writer2/resources.py"
+    "src/calibre/ebooks/mobi/writer2/resources.py",
+    "src/calibre/utils/img_shim.py"
   ],
   "sessions": [
     {
@@ -35,13 +39,19 @@
       "prompt": "/99/a0065c24f7/0/prompt.txt",
       "transcript": "/99/a0065c24f7/0/full.jsonl",
       "content_hash": "/99/a0065c24f7/0/content_hash.txt"
+    },
+    {
+      "metadata": "/99/a0065c24f7/1/metadata.json",
+      "prompt": "/99/a0065c24f7/1/prompt.txt",
+      "transcript": "/99/a0065c24f7/1/full.jsonl",
+      "content_hash": "/99/a0065c24f7/1/content_hash.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 16010,
-    "cache_creation_tokens": 36510,
-    "cache_read_tokens": 138801,
-    "output_tokens": 3684,
-    "api_call_count": 4
+    "input_tokens": 58971,
+    "cache_creation_tokens": 413855,
+    "cache_read_tokens": 20921326,
+    "output_tokens": 118968,
+    "api_call_count": 136
   }
 }

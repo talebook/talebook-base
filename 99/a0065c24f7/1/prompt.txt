@@ -1,0 +1,84 @@
+/code-review
+
+---
+
+<task-notification>
+<task-id>a026a77e110138118</task-id>
+<tool-use-id>toolu_01QCQ1oGE7EPPVVPsvtQ7Z6n</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-bytedance-github-talebook-base/c0e30bda-8084-45b8-827d-27faa06cff2a/tasks/a026a77e110138118.output</output-file>
+<status>completed</status>
+<summary>Agent "Standards review of branch diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Standards Review — `master...HEAD` (standalone ebook-convert)
+
+**(a) Documented-standard violations:** None — the repo documents no coding standards. One in-repo convention note: upstream calibre keeps module imports at the top of files; `src/calibre/customize/standalone_builtins.py:126` places `from calibre.customize.profiles import ...` mid-file after nine class definitions. Minor, judgement call.
+
+**(b) Baseline smells — all judgement calls:**
+
+1. **Repeated Switches + Shotgun Surgery** — the same env-var if-cascade `if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1': from calibre.utils.standalone_img import ... else: from calibre.utils.img import ...` recurs in 6 sites across 5 files ( `src/calibre/ebooks/docx/images.py:18` , `src/calibre/ebooks/mobi/reader/mobi6.py:28` , `src/calibre/ebooks/mobi/utils.py:19` , `src/calibre/ebooks/mobi/writer2/resources.py:74,157` ), plus a variant class-stubbing cascade in `src/calibre/ebooks/conversion/plugins/mobi_output.py:228` and `src/calibre/customize/ui.py:31,38`. One dispatch module (e.g. `calibre.utils.img_shim` re-exporting the right implementation) would collapse all six import sites and confine future edits to one file.
+
+2. **Duplicated Code** — `path_format()`, `install_qt_import_guard()` (incl. the `BlockQt` finder), and `SUPPORTED_INPUT_FORMATS` are copy-pasted verbatim between `src/calibre/ebooks/conversion/standalone_binary.py:16-51` and `src/calibre/ebooks/conversion/weasy_pdf_binary.py:25-57`.
+
+3. **Duplicated Code** — the ~20-line PDF serializer tail (`out = bytearray(b'%PDF-1.4...')` through xref/trailer/`%%EOF`) appears twice in `src/calibre/ebooks/conversion/plugins/standalone_pdf_output.py:396-412` and `:473-489`; likewise the duplicated `/Info`/`/Catalog`/`/Pages` assembly. Extract one `serialize_pdf(objects, catalog_id, pages_id, info_id)`.
+
+4. **Duplicated Code (cross-file)** — the standalone packaging constants (`STANDALONE_NO_QT_PACKAGES`, `STANDALONE_FORBIDDEN_QT_ARTIFACTS`, `STANDALONE_RESOURCE_KEEP`, `STANDALONE_CALIBRE_EXTENSIONS`, `STANDALONE_CJK_FONT_CANDIDATES`) and helpers (`is_forbidden_qt_artifact`, `validate_no_qt_artifacts`, `prune_standalone_resources`, `copy_standalone_cjk_font`, `filter_standalone_calibre_extensions`) are duplicated near-verbatim between `bypy/linux/__main__.py:32-67,139-220` and `bypy/macos/__main__.py`; the local build scripts `setup/build_standalone_ebook_convert_linux_local.py` and `setup/build_standalone_ebook_convert_local.py` share ~53% of lines (drop-lists, allowlists, launcher/validation logic). A shared `bypy/standalone.py` / `setup/standalone_common.py` would prevent drift.
+
+5. **Primitive Obsession + Repeated Switch** — the flavor string `LINUX_BINARY_FLAVOR != 'ebook-convert'` / `MACOS_BINARY_FLAVOR == 'ebook-convert'` gate is repeated ~10x per bypy file; a boolean `IS_STANDALONE` (or two build-profile objects) would read better and remove the magic string.
+
+6. **Possible Mysterious Name** — `path_format(path)` ( `standalone_binary.py:40` ) returns a lowercased file extension, not a "format"; `extension_of()` would be honest.
+
+7. **Possible Refused Bequest** — the `class DevicePlugin: pass` stub in `src/calibre/customize/ui.py:35` exists only so `isinstance` checks fail quietly; acceptable shim, but worth a comment.
+
+No tooling-enforceable issues reported.</result>
+<usage><subagent_tokens>69152</subagent_tokens><tool_uses>10</tool_uses><duration_ms>115730</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a1a85d3742e072a50</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-bytedance-github-talebook-base/c0e30bda-8084-45b8-827d-27faa06cff2a/tasks/a1a85d3742e072a50.output</output-file>
+<status>completed</status>
+<summary>Agent "Spec review of branch diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Spec review: docs/standalone-ebook-convert.md and docs/standalone-ebook-convert-pdf.md vs `master...HEAD`
+
+(Reviewed committed HEAD; note uncommitted worktree edits to `standalone_binary.py` / `standalone_builtins.py` add an undocumented `azw3` output — out of scope but heading for a doc mismatch if committed.)
+
+### (c) Implemented but wrong / contradicts doc
+
+1. **Image-page PDF fallback is unreachable (high).** Doc: "如果 spine 中几乎没有可抽文本但包含大量图片…写成每图一页的 PDF" and "扫描页书籍不会退化成一页标题" (standalone-ebook-convert.md). In ` /Users/bytedance/github/talebook-base/src/calibre/ebooks/conversion/plugins/standalone_pdf_output.py ` `text_from_oeb()` falls back to `metadata_text(title)` (default `'Unknown'`, never empty), so `convert()`'s gate `if len(image_pages) &gt;= 3 and text_chars == 0` can never be true — `text_chars` always counts the title/`Unknown` fallback. Scanned books do degrade to a one-page title PDF, exactly what the doc says they don't. (The doc's cited `PRC/2042` case is also only exercised as `prc -&gt; epub` in the sample matrix, so validation wouldn't catch this.)
+
+2. **PDF metadata reader is a stub.** Doc: 保留 "EPUB/MOBI/PDF/TXT/DOCX 的 metadata reader". `PDFMetadataReader.get_metadata` in ` /Users/bytedance/github/talebook-base/src/calibre/customize/standalone_builtins.py ` returns `MetaInformation(_('Unknown'), [_('Unknown')])` unconditionally — PDF metadata is "read" but always discarded.
+
+3. **Non-BMP text silently corrupted.** Doc: PDF 输出 "保留 Unicode/CJK 文本". `utf16be_hex()` maps any codepoint &gt; 0xFFFF to U+FFFD (no surrogate pairs), so CJK Extension-B characters and emoji are lost.
+
+### (b) Behaviour not asked for by the docs
+
+- **Full bypy/installer integration** (`bypy/linux/__main__.py`, `bypy/macos/__main__.py`, `bypy/linux/main.c`, `setup/installers.py`, `setup/commands.py`: new `linux_ebook_convert*` / `osx_ebook_convert` commands, flavor plumbing). The spec docs only hint "正式 release 仍应优先走 bypy 集成命令"; the actual commands are documented in bypy/README.rst, not the spec.
+- **Five chat/report transcripts under ` /Users/bytedance/github/talebook-base/chats/ `** (~1,085 lines) committed; doc says the repo keeps only "构建脚本、代码和验证工具".
+- **`src/calibre/utils/localization.py`**: macOS `user_locale`/usbobserver bypass under `CALIBRE_STANDALONE_CONVERTER` — needed but undocumented.
+- `ebook-convert-pdf` accepts `--weasy-page-size` / `--weasy-margin` options; the doc describes only `INPUT OUTPUT.pdf`.
+
+### (a) Spec'd but missing/partial
+
+- Nothing materially missing: input/output surface, plugin trimming, Qt import guard, `pdftohtml` default, `standalone_img` switches, `safe_atexit`, both builders (launcher env vars incl. `FONTCONFIG_*`/`PATH` match the pdf doc), and the smoke/matrix/reference tools are all present — except the scanned-book behaviour in (c)(1), which the doc presents as delivered but is effectively not implemented.</result>
+<usage><subagent_tokens>73602</subagent_tokens><tool_uses>17</tool_uses><duration_ms>226227</duration_ms></usage>
+</task-notification>
+
+---
+
+用中文
+
+---
+
+生成一个HTML报告给我看，要突出细节和建议
+
+---
+
+解决这些问题
+
+---
+
+右边的螺旋线的图，不要有window框
