@@ -15,7 +15,7 @@ Qt/PyQt/QtWebEngine。最终交付物不是完整 calibre，也不是单个静�
 - Calibre Python 代码位于 `/usr/lib/calibre`，资源位于 `/usr/share/calibre`。
 - 必要 native 库和 Poppler helper 分别位于 `/usr/lib/talebook-calibre/lib` 与
   `/usr/lib/talebook-calibre/bin`。
-- 公开命令为 `ebook-convert`、`ebook-convert-pdf`、`calibredb`。
+- 公开 Calibre 命令为 `ebook-convert`、`calibredb`；不再暴露临时的独立 PDF 命令。
 - `.pdf` 输出由入口路由到 WeasyPrint；轻量 Calibre 转换器不再注册 PDF 输出插件。
 
 构建阶段只用 `apt-get --download-only` 获取 Debian 包；随后用 `dpkg-deb -x` 解包，
@@ -51,8 +51,8 @@ Qt/PyQt 包在进入取材树前被过滤。最终阶段从干净的 `debian:13-
 - 输入：`azw`、`azw3`、`docx`、`epub`、`mobi`、`original_epub`、`pdf`、`prc`、
   `txt`、`zip`
 - 轻量输出：`azw3`、`epub`、`mobi`、`txt`
-- 公共 PDF 输出：`ebook-convert INPUT.pdf-or-ebook OUTPUT.pdf` 由路由层交给
-  `ebook-convert-pdf`/WeasyPrint，不进入轻量输出插件集合
+- 公共 PDF 输出：`ebook-convert INPUT.pdf-or-ebook OUTPUT.pdf` 由同一入口在内部交给
+  WeasyPrint 后端，不进入轻量输出插件集合
 
 入口层会拒绝其它扩展或输出格式，返回码为 `2`。例如 `doc`、`ebk3`、`png`、`wps`
 仍不会进入转换管线。
@@ -79,7 +79,7 @@ Qt/PyQt 包在进入取材树前被过滤。最终阶段从干净的 `debian:13-
   `azw3/epub/mobi/txt`。
 
 镜像公开的 `/usr/bin/ebook-convert` 先由 `ebook_convert_router.py` 检查输出扩展：
-`.pdf` 调用 `weasy_pdf_binary.py`，其它格式调用 `standalone_binary.py`。因此 PDF 是
+`.pdf` 调用内部 `weasy_pdf.py` 后端，其它格式调用 `standalone_binary.py`。因此 PDF 是
 公共命令能力，但不是轻量 Calibre 输出插件能力。
 
 ### 插件剪裁
@@ -100,10 +100,10 @@ device 插件。
 ### PDF 输出
 
 `standalone_pdf_output.py` 已删除：上层 Talebook 从未直接调用这个轻量插件，而且公共
-`ebook-convert` 早已把 `.pdf` 输出分流到 `weasy_pdf_binary.py`。保留两套 PDF 实现只会
+`ebook-convert` 早已把 `.pdf` 输出分流到内部 `weasy_pdf.py`。保留两套 PDF 实现只会
 扩大维护面并让测试结果混淆。
 
-当前 PDF 流程是 Calibre 输入插件先把源书规范化为 OEB，`weasy_pdf_binary.py` 再按
+当前 PDF 流程是 Calibre 输入插件先把源书规范化为 OEB，`weasy_pdf.py` 再按
 spine 合并 XHTML、修正资源 URL、加载 CSS 与 CJK 字体，最后调用 WeasyPrint 写出
 PDF。入口调用形态仍与 Calibre CLI 一致：
 `ebook-convert INPUT OUTPUT.pdf [options...]`。

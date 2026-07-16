@@ -2,8 +2,7 @@ __license__ = 'GPL 3'
 __copyright__ = '2026, Kovid Goyal <kovid@kovidgoyal.net>'
 
 '''
-Shared helpers for the standalone converter binary entry points
-(ebook-convert and ebook-convert-pdf).
+Shared helpers for the standalone ebook-convert backends.
 
 Entry points import this before installing the Qt import guard, so nothing
 here may import Qt or anything that dispatches on CALIBRE_STANDALONE_CONVERTER.

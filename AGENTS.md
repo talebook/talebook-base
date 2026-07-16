@@ -7,19 +7,18 @@ This repository is based on calibre and the active work is on the
 Talebook instead of a full desktop calibre distribution.
 
 The current delivery target is a slim `talebook/talebook-base` Linux image based
-on `debian:13-slim`. It uses Debian's system Python and three public commands:
+on `debian:13-slim`. It uses Debian's system Python and two public Calibre commands:
 
 - `ebook-convert`: the compatibility entry point; PDF output is routed to the
   WeasyPrint renderer and other supported output formats use the lightweight
   standalone converter.
-- `ebook-convert-pdf`: the WeasyPrint-based PDF converter.
 - `calibredb`: direct access to the retained Calibre database CLI.
 
 The standalone input surface is `azw`, `azw3`, `docx`, `epub`, `mobi`,
 `original_epub`, `pdf`, `prc`, `txt`, and `zip`. The lightweight converter
 currently exposes `azw3`, `epub`, `mobi`, and `txt` outputs. Public PDF output is
 not a lightweight Calibre plugin: the `ebook-convert` router sends `.pdf`
-outputs to `weasy_pdf_binary.py`. Unsupported formats are rejected intentionally
+outputs to the internal `weasy_pdf.py` backend. Unsupported formats are rejected intentionally
 to keep Qt, GUI, device, server, and scraper dependencies out of the runtime.
 
 ## Important paths
@@ -32,10 +31,10 @@ to keep Qt, GUI, device, server, and scraper dependencies out of the runtime.
 - `setup/standalone_ebook_convert_*`: smoke, sample-matrix, and reference
   comparison tools.
 - `src/calibre/ebooks/conversion/standalone_binary.py`: lightweight CLI entry.
-- `src/calibre/ebooks/conversion/weasy_pdf_binary.py`: WeasyPrint PDF entry.
+- `src/calibre/ebooks/conversion/weasy_pdf.py`: internal WeasyPrint PDF backend.
 - `src/calibre/customize/standalone_builtins.py`: allowed standalone plugins.
-- `docs/standalone-ebook-convert*.md`: design, validation history, and known
-  limitations.
+- `docs/standalone-ebook-convert.md`: design, validation history, and known
+  limitations for the unified public converter.
 
 ## Validation workflow
 
@@ -48,8 +47,8 @@ make test
 ```
 
 `make test` builds `Dockerfile.base` and runs `packaging/smoke-test.sh` in the
-resulting image. The image smoke must verify all three public commands, the
-absence of PyQt/Qt, Calibre database creation/listing, and EPUB conversion to
+resulting image. The image smoke must verify both public Calibre commands, the
+absence of the temporary `ebook-convert-pdf` command and PyQt/Qt, Calibre database creation/listing, and EPUB conversion to
 MOBI, AZW3, and PDF, including CJK PDF text extraction. It must also import the
 prebuilt QuickJS module, reject missing/Qt-linked native dependencies, prove
 that no compiler toolchain remains, and keep `/usr` at or below 400 MiB. Image
@@ -57,9 +56,9 @@ coverage must include the public `calibre.utils.magick.draw.thumbnail` API,
 PNG/JPEG/GIF Pillow-shim operations, and database cover writes through both
 `LibraryDatabase.set_cover` and `set_metadata`.
 
-When changing supported formats or PDF behavior, update the corresponding
-sample matrix and both standalone design documents. The PDF sample matrix also
-contains a synthetic image-only EPUB regression case.
+When changing supported formats, update the standalone sample matrix. When
+changing PDF routing or rendering, update `packaging/smoke-test.sh`, the unified
+standalone design document, and the active architecture note in `design/`.
 
 ## Runtime constraints
 

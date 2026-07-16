@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Route the classic ebook-convert CLI to the standalone conversion binaries."""
+"""Route the classic ebook-convert CLI to the retained conversion backends."""
 
 from __future__ import annotations
 
-import os
 import sys
 
-ENTRYPOINT_ROOT = os.path.dirname(os.path.abspath(__file__))
-EBOOK_CONVERT = os.path.join(ENTRYPOINT_ROOT, "run_ebook_convert.py")
-EBOOK_CONVERT_PDF = os.path.join(ENTRYPOINT_ROOT, "run_ebook_convert_pdf.py")
+from talebook_calibre_env import configure
 
 PDF_DROP_OPTIONS = {
     "--no-chapters-in-toc",
@@ -32,11 +29,6 @@ def split_option(arg: str) -> tuple[str, str | None, bool]:
         name, value = arg.split("=", 1)
         return name, value, True
     return arg, None, False
-
-
-def output_path(argv: list[str]) -> str:
-    positional = [arg for arg in argv if arg == "-" or not arg.startswith("-")]
-    return positional[1] if len(positional) > 1 else ""
 
 
 def translate_pdf_args(argv: list[str]) -> list[str]:
@@ -77,15 +69,17 @@ def translate_pdf_args(argv: list[str]) -> list[str]:
     return args
 
 
-def main(argv: list[str]) -> None:
-    if output_path(argv).lower().endswith(".pdf") and len(argv) >= 2:
-        target = EBOOK_CONVERT_PDF
-        args = translate_pdf_args(argv)
-    else:
-        target = EBOOK_CONVERT
-        args = argv
-    os.execv(sys.executable, [sys.executable, target, *args])
+def main(argv: list[str]) -> int:
+    configure("ebook-convert")
+    # The classic CLI contract is ebook-convert INPUT OUTPUT [OPTIONS].
+    if len(argv) >= 2 and argv[1].lower().endswith(".pdf"):
+        from calibre.ebooks.conversion.weasy_pdf import main as pdf_main
+
+        return int(pdf_main(["ebook-convert", *translate_pdf_args(argv)]) or 0)
+    from calibre.ebooks.conversion.standalone_binary import main as convert_main
+
+    return int(convert_main(["ebook-convert", *argv]) or 0)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    raise SystemExit(main(sys.argv[1:]))

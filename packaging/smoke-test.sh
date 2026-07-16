@@ -20,8 +20,11 @@ if test "$usr_mib" -gt "$MAX_USR_MIB"; then
 fi
 
 command -v ebook-convert
-command -v ebook-convert-pdf
 command -v calibredb
+if command -v ebook-convert-pdf >/dev/null 2>&1; then
+    echo "temporary ebook-convert-pdf command must not be exposed" >&2
+    exit 1
+fi
 python3 -m pip --version
 python3 -m pip install --dry-run --no-index quickjs setuptools
 
@@ -187,10 +190,6 @@ ebook-convert "$FIXTURE" /tmp/convert-test.pdf \
     --pdf-page-margin-top=15 \
     --pdf-page-margin-right=15 \
     --pdf-page-margin-bottom=15
-ebook-convert-pdf "$FIXTURE" /tmp/convert-test-direct.pdf \
-    --weasy-page-size A5 \
-    --weasy-margin 15pt
-
 printf '%s\n' 'Talebook standalone PDF 这是中文测试 😀' > /tmp/convert-test-cjk.txt
 ebook-convert /tmp/convert-test-cjk.txt /tmp/convert-test-cjk.pdf
 "$HELPER_ROOT/pdftotext" /tmp/convert-test-cjk.pdf /tmp/convert-test-cjk-extracted.txt
@@ -199,11 +198,9 @@ grep -F '这是中文测试' /tmp/convert-test-cjk-extracted.txt
 test -s /tmp/convert-test.mobi
 test -s /tmp/convert-test.azw3
 test -s /tmp/convert-test.pdf
-test -s /tmp/convert-test-direct.pdf
 test -s /tmp/convert-test-cjk.pdf
 ls -lh \
     /tmp/convert-test.mobi \
     /tmp/convert-test.azw3 \
     /tmp/convert-test.pdf \
-    /tmp/convert-test-direct.pdf \
     /tmp/convert-test-cjk.pdf

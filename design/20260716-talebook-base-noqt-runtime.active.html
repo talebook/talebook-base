@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Talebook Base 无 Qt Calibre 运行时：最终架构与 Master 差异</title>
+  <style>
+    :root {
+      --paper: #f7f7f5;
+      --surface: #ffffff;
+      --ink: #1a1a1a;
+      --muted: #686863;
+      --line: #d8d7d1;
+      --accent: #c85a35;
+      --accent-soft: #f1ded6;
+      --blue: #2e6675;
+      --blue-soft: #dce9ec;
+      --green: #3f7059;
+      --green-soft: #dfeae4;
+      --yellow: #9a6a25;
+      --yellow-soft: #f3ead7;
+      --code: #292b2d;
+      --shadow: 0 18px 50px rgba(25, 25, 20, .07);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+      font-size: 17px;
+      line-height: 1.82;
+    }
+    #progress {
+      position: fixed;
+      inset: 0 auto auto 0;
+      z-index: 20;
+      width: 0;
+      height: 3px;
+      background: var(--accent);
+    }
+    .page {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 820px);
+      gap: 56px;
+      align-items: start;
+    }
+    .toc {
+      position: sticky;
+      top: 32px;
+      padding: 32px 0;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .toc .label { color: var(--accent); letter-spacing: .15em; text-transform: uppercase; }
+    .toc ol { margin: 18px 0 0; padding: 0; list-style: none; counter-reset: item; }
+    .toc li { margin: 0 0 10px; counter-increment: item; }
+    .toc a { color: var(--muted); text-decoration: none; }
+    .toc a::before { content: counter(item, decimal-leading-zero) "  "; color: #aaa9a3; }
+    .toc a:hover, .toc a.active { color: var(--ink); }
+    main { min-width: 0; padding-bottom: 100px; }
+    header { padding: 94px 0 70px; border-bottom: 1px solid var(--line); }
+    .eyebrow, .meta, .tag, .section-no, code, pre, .mono {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    .eyebrow { color: var(--accent); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; }
+    h1 { max-width: 760px; margin: 16px 0 24px; font-size: clamp(42px, 6vw, 72px); line-height: 1.08; letter-spacing: -.035em; }
+    .dek { max-width: 720px; margin: 0; color: #41413e; font-size: 21px; line-height: 1.65; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 34px; color: var(--muted); font-size: 12px; }
+    .tag { display: inline-flex; align-items: center; padding: 3px 9px; border: 1px solid var(--accent); color: var(--accent); font-size: 11px; letter-spacing: .09em; }
+    section { padding: 72px 0 10px; scroll-margin-top: 24px; }
+    .section-no { color: var(--accent); font-size: 12px; letter-spacing: .15em; }
+    h2 { margin: 6px 0 22px; font-size: 38px; line-height: 1.2; letter-spacing: -.025em; }
+    h3 { margin: 44px 0 14px; font-size: 24px; line-height: 1.35; }
+    h4 { margin: 28px 0 8px; font-size: 18px; }
+    p { margin: 0 0 18px; }
+    a { color: var(--blue); }
+    code { padding: .1em .32em; border-radius: 3px; background: #ebeae6; font-size: .84em; }
+    pre { position: relative; margin: 22px 0; padding: 22px 24px; overflow: auto; color: #f4f3ee; background: var(--code); font-size: 13px; line-height: 1.65; }
+    pre code { padding: 0; background: transparent; font-size: inherit; }
+    .copy {
+      position: absolute; top: 10px; right: 10px; padding: 5px 8px;
+      border: 1px solid #5c5e60; color: #d8d8d4; background: transparent;
+      font: 10px "SFMono-Regular", Consolas, monospace; cursor: pointer;
+    }
+    .lead { font-size: 21px; line-height: 1.68; }
+    .callout { margin: 26px 0; padding: 22px 24px; border-left: 4px solid var(--accent); background: var(--accent-soft); }
+    .callout strong { display: block; margin-bottom: 4px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 26px 0; }
+    .card { padding: 24px; border: 1px solid var(--line); background: rgba(255,255,255,.58); }
+    .card h3, .card h4 { margin-top: 0; }
+    .card p:last-child { margin-bottom: 0; }
+    .metric { font-size: 34px; line-height: 1.1; letter-spacing: -.03em; }
+    .metric-label { margin-top: 8px; color: var(--muted); font: 12px "SFMono-Regular", Consolas, monospace; }
+    table { width: 100%; margin: 24px 0 34px; border-collapse: collapse; font-size: 15px; line-height: 1.55; }
+    th { color: var(--muted); font: 11px "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+    th, td { padding: 13px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    tbody tr:hover { background: rgba(255,255,255,.62); }
+    ul, ol { margin: 14px 0 24px; padding-left: 25px; }
+    li { margin-bottom: 8px; }
+    figure { margin: 38px 0 44px; padding: 28px 18px 20px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); overflow-x: auto; }
+    figure svg { display: block; min-width: 680px; width: 100%; height: auto; }
+    figcaption { margin: 16px 8px 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .file-list { columns: 2; column-gap: 36px; margin: 20px 0; padding: 0; list-style: none; }
+    .file-list li { break-inside: avoid; margin: 0 0 9px; padding-left: 16px; position: relative; font: 12px/1.5 "SFMono-Regular", Consolas, monospace; overflow-wrap: anywhere; }
+    .file-list li::before { content: "·"; position: absolute; left: 0; color: var(--accent); }
+    .status-pass { color: var(--green); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+    .status-note { color: var(--yellow); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+    footer { margin-top: 70px; padding: 30px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    @media (max-width: 920px) {
+      .page { display: block; width: min(820px, calc(100% - 32px)); }
+      .toc { position: relative; top: auto; padding: 24px 0 0; }
+      .toc ol { columns: 2; }
+      header { padding-top: 58px; }
+    }
+    @media (max-width: 620px) {
+      body { font-size: 16px; }
+      .toc ol, .file-list { columns: 1; }
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 43px; }
+      h2 { font-size: 31px; }
+      th, td { padding: 10px 8px; }
+    }
+    @media print {
+      #progress, .toc, .copy { display: none; }
+      .page { display: block; width: 100%; }
+      main { padding: 0 30px; }
+      header { padding-top: 20px; }
+      figure { box-shadow: none; break-inside: avoid; }
+      section { break-before: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div id="progress" aria-hidden="true"></div>
+  <div class="page">
+    <nav class="toc" aria-label="目录">
+      <div class="label">Contents</div>
+      <ol>
+        <li><a href="#summary">结论摘要</a></li>
+        <li><a href="#delta">相对 Master</a></li>
+        <li><a href="#boundary">最终能力边界</a></li>
+        <li><a href="#build">五阶段构建</a></li>
+        <li><a href="#noqt">如何移除 Qt</a></li>
+        <li><a href="#routing">命令与分流</a></li>
+        <li><a href="#runtime">运行时布局</a></li>
+        <li><a href="#files">具体修改文件</a></li>
+        <li><a href="#verification">最终验证</a></li>
+        <li><a href="#constraints">约束与结论</a></li>
+      </ol>
+    </nav>
+
+    <main>
+      <header>
+        <div class="eyebrow">Final architecture note · talebook-base</div>
+        <h1>无 Qt 的 Calibre，保留 Talebook 真正需要的部分</h1>
+        <p class="dek">这份文档以本地 <code>master</code> 为基线，描述当前分支的最终实现：在 Debian 13 系统 Python 上裁剪 Calibre，只发布 <code>ebook-convert</code> 与 <code>calibredb</code>，用 Pillow、Poppler 与 WeasyPrint 替换转换链上的 Qt 职责。</p>
+        <div class="meta">
+          <span class="tag">STATUS · ACTIVE</span>
+          <span>2026-07-16</span>
+          <span>BASELINE · master@f36a8651c73b</span>
+          <span>SOURCE · only-ebook-convert@d20aa5c7253 + working tree</span>
+        </div>
+      </header>
+
+      <section id="summary">
+        <div class="section-no">01 / Summary</div>
+        <h2>结论摘要</h2>
+        <p class="lead">这里没有“把完整 Calibre 的 Qt import 隐藏起来”。最终方案是把产品边界缩到 Talebook 的服务器端用例，再从源码、Python 模块、Debian 包和 ELF 动态库四个层面共同收口。</p>
+        <div class="callout">
+          <strong>核心判断</strong>
+          Talebook 不需要 Calibre GUI、设备管理、内容服务器和 Qt WebEngine。它需要的是电子书格式转换、书库元数据/封面操作，以及 PDF 输入输出。围绕这三项能力建立白名单，比携带完整 Calibre 后再尝试“禁用 GUI”更可靠。
+        </div>
+        <div class="grid">
+          <div class="card">
+            <div class="metric">2</div>
+            <div class="metric-label">PUBLIC CALIBRE COMMANDS</div>
+            <p><code>ebook-convert</code> 与 <code>calibredb</code> 是镜像唯一对外发布的 Calibre 命令。</p>
+          </div>
+          <div class="card">
+            <div class="metric">0</div>
+            <div class="metric-label">QT / PYQT RUNTIME DEPENDENCIES</div>
+            <p>最终镜像拒绝 Qt/PyQt 文件、Python import 与 ELF 链接依赖。</p>
+          </div>
+          <div class="card">
+            <div class="metric">14</div>
+            <div class="metric-label">NATIVE PLUGINS ALLOWLISTED</div>
+            <p>只复制转换与数据库路径实际使用的 Calibre 原生扩展。</p>
+          </div>
+          <div class="card">
+            <div class="metric">~340 MiB</div>
+            <div class="metric-label">ARM64 IMAGE · CURRENT BUILD</div>
+            <p>本轮最终镜像为 356,152,318 bytes，约 339.65 MiB。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="delta">
+        <div class="section-no">02 / Delta</div>
+        <h2>相对 Master，系统发生了什么</h2>
+        <p><code>master</code> 提供的是上游 Calibre 源码及其完整构建体系。当前实现新增一个 Talebook 专用的服务器运行时切片，并对转换热路径做少量、显式、可守卫的源码适配。</p>
+        <table>
+          <thead><tr><th>维度</th><th>Master</th><th>当前最终状态</th></tr></thead>
+          <tbody>
+            <tr><td>产品边界</td><td>完整 Calibre 应用与通用构建入口</td><td>面向 Talebook 的转换、PDF 与书库操作子集</td></tr>
+            <tr><td>容器基础</td><td>没有本项目专用 slim 镜像</td><td><code>debian:13-slim</code> + Debian 系统 Python 3.13</td></tr>
+            <tr><td>公开 CLI</td><td>由完整 Calibre 安装决定</td><td>固定为 <code>ebook-convert</code>、<code>calibredb</code></td></tr>
+            <tr><td>插件发现</td><td>加载完整内置插件集合</td><td>standalone 模式使用输入、输出和元数据插件白名单</td></tr>
+            <tr><td>图像后端</td><td><code>calibre.utils.img</code> 可进入 Qt 图像 API</td><td>转换路径经 shim 转到 Pillow；非 standalone 行为保持不变</td></tr>
+            <tr><td>PDF 输入</td><td>Calibre 完整 PDF 输入链</td><td>默认调用 Poppler <code>pdftohtml</code></td></tr>
+            <tr><td>PDF 输出</td><td>Calibre Qt/WebEngine PDF 路径</td><td><code>ebook-convert</code> 内部路由到 OEB→WeasyPrint 后端</td></tr>
+            <tr><td>依赖交付</td><td>完整构建/安装依赖图</td><td>Debian 包只解包所需文件，再做闭包收集、Qt 拒绝和去重</td></tr>
+            <tr><td>发布验证</td><td>通用上游测试</td><td>镜像 smoke、Qt/ELF 负向断言、双架构 CI</td></tr>
+          </tbody>
+        </table>
+        <p>这不是 fork 出另一套转换器：EPUB、MOBI、AZW3 等主路径仍运行 Calibre 的解析、OEB 归一化和输出插件；改造集中在依赖边界、图像抽象和 PDF 渲染端。</p>
+      </section>
+
+      <section id="boundary">
+        <div class="section-no">03 / Boundary</div>
+        <h2>最终能力边界</h2>
+        <table>
+          <thead><tr><th>能力</th><th>保留方式</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr><td>AZW / AZW3 / DOCX / EPUB / MOBI / PRC / TXT / ZIP 输入</td><td>Calibre input plugin 白名单</td><td class="status-pass">保留</td></tr>
+            <tr><td>PDF 输入</td><td>Calibre 入口 + Poppler <code>pdftohtml</code></td><td class="status-pass">保留</td></tr>
+            <tr><td>AZW3 / EPUB / MOBI / TXT 输出</td><td>Calibre output plugin 白名单</td><td class="status-pass">保留</td></tr>
+            <tr><td>PDF 输出</td><td>Calibre 输入→OEB→HTML/CSS/资源→WeasyPrint</td><td class="status-pass">保留</td></tr>
+            <tr><td>书库、元数据、封面</td><td><code>calibredb</code> 与 Talebook 历史 API 兼容层</td><td class="status-pass">保留</td></tr>
+            <tr><td>GUI / Viewer / Editor</td><td>不复制相关模块与 Qt 运行时</td><td class="status-note">排除</td></tr>
+            <tr><td>设备驱动 / 内容服务器 / 抓取器</td><td>standalone 模块目录黑名单</td><td class="status-note">排除</td></tr>
+            <tr><td>完整 Calibre CLI 兼容</td><td>不是该镜像的目标</td><td class="status-note">排除</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="build">
+        <div class="section-no">04 / Build</div>
+        <h2>五阶段构建：提取，不安装整包</h2>
+        <p>最终镜像基于 <code>debian:13-slim</code>，直接使用 Debian 管理的 Python 3.13。Calibre、WeasyPrint 与 Poppler 的 Debian 包在构建阶段只下载并解包；Qt/PyQt 包在进入文件树前就被过滤。</p>
+        <figure>
+          <svg viewBox="0 0 680 420" role="img" aria-labelledby="build-title build-desc">
+            <title id="build-title">Talebook Base 五阶段镜像构建</title>
+            <desc id="build-desc">Debian 包提取、系统运行时、QuickJS wheel、Calibre 裁剪与最终镜像五个阶段的数据流。</desc>
+            <defs>
+              <marker id="arrow-build" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#2e6675" stroke-width="1.5"/>
+              </marker>
+            </defs>
+            <g font-family="Anthropic Sans, Arial, sans-serif" fill="#1a1a1a">
+              <text x="24" y="31" font-size="12" fill="#c85a35" letter-spacing="1.5">BUILD GRAPH · DEBIAN 13</text>
+              <g stroke="#bdbcb6" stroke-width="0.5">
+                <rect x="24" y="56" width="195" height="112" rx="3" fill="#f1ded6"/>
+                <rect x="461" y="56" width="195" height="112" rx="3" fill="#dce9ec"/>
+                <rect x="24" y="225" width="195" height="112" rx="3" fill="#f3ead7"/>
+                <rect x="242" y="225" width="195" height="112" rx="3" fill="#dfeae4"/>
+                <rect x="461" y="225" width="195" height="112" rx="3" fill="#ffffff"/>
+              </g>
+              <g font-size="15" font-weight="600">
+                <text x="42" y="84">1 · deb-packages</text>
+                <text x="479" y="84">2 · runtime-system</text>
+                <text x="42" y="253">3 · python-wheel-build</text>
+                <text x="260" y="253">4 · runtime-build</text>
+                <text x="479" y="253">5 · base</text>
+              </g>
+              <g font-size="12" fill="#4f504d">
+                <text x="42" y="109">apt --download-only</text><text x="42" y="130">过滤 Qt/PyQt 包</text><text x="42" y="151">dpkg-deb -x</text>
+                <text x="479" y="109">系统 Python / pip</text><text x="479" y="130">nginx / supervisor</text><text x="479" y="151">APSW / xxhash</text>
+                <text x="42" y="278">编译 quickjs 1.19.4</text><text x="42" y="299">只输出 wheel</text><text x="42" y="320">编译工具不进成品</text>
+                <text x="260" y="278">白名单复制源码与插件</text><text x="260" y="299">收集 ELF 闭包 / strip</text><text x="260" y="320">Qt 拒绝 / 系统库去重</text>
+                <text x="479" y="278">合并两个运行时</text><text x="479" y="299">安装两个公开命令</text><text x="479" y="320">执行镜像 smoke</text>
+              </g>
+              <g stroke="#2e6675" stroke-width="1.5" fill="none" marker-end="url(#arrow-build)">
+                <path d="M219 112 H451"/>
+                <path d="M121 168 V215"/>
+                <path d="M219 281 H232"/>
+                <path d="M461 112 C400 112 400 200 365 215"/>
+                <path d="M437 281 H451"/>
+              </g>
+              <line x1="24" y1="375" x2="656" y2="375" stroke="#d8d7d1" stroke-width="0.5"/>
+              <text x="24" y="399" font-size="12" fill="#686863">最终层没有 apt 安装 calibre，也没有 gcc、python3-dev、build-essential 或 Qt。</text>
+            </g>
+          </svg>
+          <figcaption>图 1 · 构建产物沿单向管道进入最终层。Debian 包管理器负责版本选择，但完整软件包及其推荐依赖不会被安装进成品。</figcaption>
+        </figure>
+        <h3>为什么不是私有 Python 运行时</h3>
+        <p>容器使用 <code>/usr/bin/python3</code> 和 Debian 的标准 <code>dist-packages</code>。Calibre 源码直接覆盖到 <code>/usr/lib/calibre</code>，Python 依赖沿系统路径加载；没有 <code>PYTHONHOME</code>，也没有另一套 Python 根目录。这样 Talebook 后续的 <code>pip install -r</code> 仍然落在同一个解释器生态中。</p>
+        <h3>为什么仍需提取 <code>.so</code></h3>
+        <p>Python 源码只是依赖图的一部分。ICU、Pango、Cairo、FreeType、Poppler 辅助程序和 Calibre 原生扩展都需要动态库。构建脚本从 Debian 包展开文件，再从保留的 ELF 起点递归解析 <code>DT_NEEDED</code>，只复制闭包内的库；随后与最终 Debian 系统层按字节去重。</p>
+      </section>
+
+      <section id="noqt">
+        <div class="section-no">05 / No Qt</div>
+        <h2>Qt 是怎样被真正移除的</h2>
+        <p>移除 Qt 不是一条 patch，而是五道互相校验的边界。</p>
+        <ol>
+          <li><strong>能力删除：</strong>GUI、设备、内容服务器、抓取器等目录不进入 standalone 源码包。</li>
+          <li><strong>插件白名单：</strong>只注册目标输入/输出/元数据插件与 14 个必要原生扩展，避免模块自动发现把 GUI 图重新拉回。</li>
+          <li><strong>职责替换：</strong>图像缩放、编码、封面处理走 Pillow；PDF 输入走 Poppler；PDF 输出走 WeasyPrint。</li>
+          <li><strong>兼容分流：</strong><code>img_shim.py</code> 仅在 standalone 环境切换实现，完整 Calibre 的非 standalone 路径仍可使用原逻辑。</li>
+          <li><strong>成品负向断言：</strong>smoke 同时检查 PyQt import 失败、Qt 文件不存在、ELF 不链接 Qt、动态依赖无缺失。</li>
+        </ol>
+        <figure>
+          <svg viewBox="0 0 680 470" role="img" aria-labelledby="qt-title qt-desc">
+            <title id="qt-title">Qt 职责的替换与删除</title>
+            <desc id="qt-desc">展示 Master 中可能依赖 Qt 的图像、PDF 和应用功能，在最终运行时分别由 Pillow、Poppler、WeasyPrint 替换或直接删除。</desc>
+            <defs>
+              <marker id="arrow-qt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#c85a35" stroke-width="1.5"/>
+              </marker>
+            </defs>
+            <g font-family="Anthropic Sans, Arial, sans-serif" fill="#1a1a1a">
+              <text x="24" y="29" font-size="12" fill="#c85a35" letter-spacing="1.4">DEPENDENCY SUBSTITUTION</text>
+              <text x="24" y="62" font-size="13" font-weight="600">MASTER 职责</text>
+              <text x="455" y="62" font-size="13" font-weight="600">最终运行时</text>
+              <g stroke="#bdbcb6" stroke-width="0.5">
+                <rect x="24" y="82" width="190" height="70" rx="3" fill="#f1ded6"/>
+                <rect x="24" y="173" width="190" height="70" rx="3" fill="#f1ded6"/>
+                <rect x="24" y="264" width="190" height="70" rx="3" fill="#f1ded6"/>
+                <rect x="24" y="355" width="190" height="70" rx="3" fill="#f1ded6"/>
+                <rect x="455" y="82" width="201" height="70" rx="3" fill="#dfeae4"/>
+                <rect x="455" y="173" width="201" height="70" rx="3" fill="#dce9ec"/>
+                <rect x="455" y="264" width="201" height="70" rx="3" fill="#f3ead7"/>
+                <rect x="455" y="355" width="201" height="70" rx="3" fill="#eeeeea"/>
+              </g>
+              <g font-size="14" font-weight="600">
+                <text x="42" y="109">图像 API</text><text x="42" y="200">PDF 输入辅助</text><text x="42" y="291">PDF 页面渲染</text><text x="42" y="382">GUI / Viewer / Server</text>
+                <text x="473" y="109">Pillow</text><text x="473" y="200">Poppler</text><text x="473" y="291">WeasyPrint</text><text x="473" y="382">不进入镜像</text>
+              </g>
+              <g font-size="11.5" fill="#575854">
+                <text x="42" y="132">缩放、编码、封面</text><text x="42" y="223">文档解析与转换</text><text x="42" y="314">WebEngine / 打印</text><text x="42" y="405">桌面与服务功能</text>
+                <text x="473" y="132">standalone_img + img_shim</text><text x="473" y="223">pdftohtml</text><text x="473" y="314">HTML/CSS → PDF</text><text x="473" y="405">目录黑名单 + 包过滤</text>
+              </g>
+              <g stroke="#c85a35" stroke-width="1.5" fill="none" marker-end="url(#arrow-qt)">
+                <path d="M214 117 H445"/><path d="M214 208 H445"/><path d="M214 299 H445"/><path d="M214 390 H445"/>
+              </g>
+              <g font-size="10.5" fill="#686863">
+                <text x="289" y="108">replace</text><text x="289" y="199">replace</text><text x="289" y="290">replace</text><text x="294" y="381">delete</text>
+              </g>
+            </g>
+          </svg>
+          <figcaption>图 2 · 转换链需要的职责被小型服务器组件接替；不属于 Talebook 运行边界的 Qt 功能则直接不打包。</figcaption>
+        </figure>
+        <h3>图像兼容层</h3>
+        <p><code>calibre.utils.standalone_img</code> 实现转换所需的 Pillow 操作；<code>calibre.utils.img_shim</code> 根据 <code>CALIBRE_STANDALONE_CONVERTER</code> 选择 Pillow 或原实现。Talebook 既有代码调用的 <code>calibre.utils.magick.draw.thumbnail()</code> 在 standalone 下也被导向同一后端。构建阶段还覆盖 Debian 已安装的 <code>calibre.utils.img</code>，因此 <code>calibredb</code> 的封面与元数据路径不会意外落回 Qt。</p>
+        <h3>原生扩展白名单</h3>
+        <p>运行时只保留：<code>cPalmdoc</code>、<code>fast_css_transform</code>、<code>fast_html_entities</code>、<code>freetype</code>、<code>html_as_json</code>、<code>hyphen</code>、<code>icu</code>、<code>matcher</code>、<code>podofo</code>、<code>speedup</code>、<code>sqlite_custom</code>、<code>sqlite_extension</code>、<code>uchardet</code>、<code>unicode_names</code>。</p>
+      </section>
+
+      <section id="routing">
+        <div class="section-no">06 / Routing</div>
+        <h2>两个公开命令，一条 PDF 内部分流</h2>
+        <p><code>/usr/bin/ebook-convert</code> 进入同一个 Python router。router 先建立共享运行环境，再读取目标文件扩展名：PDF 进入内部 WeasyPrint 后端；其他受支持格式进入 Calibre standalone 转换器。PDF 是 <code>ebook-convert</code> 的一种输出行为，不是第二个产品入口。</p>
+        <figure>
+          <svg viewBox="0 0 680 500" role="img" aria-labelledby="route-title route-desc">
+            <title id="route-title">最终公开命令与内部路由</title>
+            <desc id="route-desc">ebook-convert 按目标扩展名分到 Calibre 输出插件或 WeasyPrint，calibredb 进入数据库和元数据路径。</desc>
+            <defs>
+              <marker id="arrow-route" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#2e6675" stroke-width="1.5"/>
+              </marker>
+            </defs>
+            <g font-family="Anthropic Sans, Arial, sans-serif" fill="#1a1a1a">
+              <text x="24" y="29" font-size="12" fill="#c85a35" letter-spacing="1.4">PUBLIC API → INTERNAL BACKENDS</text>
+              <g stroke="#bdbcb6" stroke-width="0.5">
+                <rect x="24" y="65" width="190" height="72" rx="3" fill="#f1ded6"/>
+                <rect x="24" y="353" width="190" height="72" rx="3" fill="#f1ded6"/>
+                <rect x="248" y="65" width="190" height="72" rx="3" fill="#ffffff"/>
+                <rect x="466" y="65" width="190" height="72" rx="3" fill="#dce9ec"/>
+                <rect x="466" y="181" width="190" height="92" rx="3" fill="#dfeae4"/>
+                <rect x="466" y="301" width="190" height="92" rx="3" fill="#f3ead7"/>
+                <rect x="248" y="353" width="190" height="72" rx="3" fill="#ffffff"/>
+                <rect x="466" y="421" width="190" height="54" rx="3" fill="#dfeae4"/>
+              </g>
+              <g font-size="14" font-weight="600">
+                <text x="42" y="94">ebook-convert</text><text x="42" y="382">calibredb</text>
+                <text x="266" y="94">共享环境配置</text><text x="484" y="94">目标扩展名</text>
+                <text x="484" y="211">普通电子书输出</text><text x="484" y="331">PDF 输出</text>
+                <text x="266" y="382">Calibre DB CLI</text><text x="484" y="451">书库 / 元数据 / 封面</text>
+              </g>
+              <g font-size="11.5" fill="#575854">
+                <text x="42" y="117">唯一转换入口</text><text x="42" y="405">唯一书库入口</text>
+                <text x="266" y="117">PYTHONPATH / LD / fonts</text><text x="484" y="117">.pdf ?</text>
+                <text x="484" y="234">standalone_binary</text><text x="484" y="254">AZW3 / EPUB / MOBI / TXT</text>
+                <text x="484" y="354">weasy_pdf</text><text x="484" y="374">OEB → HTML/CSS → WeasyPrint</text>
+                <text x="266" y="405">run_calibredb.py</text>
+              </g>
+              <g stroke="#2e6675" stroke-width="1.5" fill="none" marker-end="url(#arrow-route)">
+                <path d="M214 101 H238"/><path d="M438 101 H456"/>
+                <path d="M561 137 V171"/><path d="M561 137 C430 160 430 303 456 337"/>
+                <path d="M214 389 H238"/><path d="M438 389 C452 389 452 448 456 448"/>
+              </g>
+              <circle cx="561" cy="150" r="3.5" fill="#c85a35"/>
+            </g>
+          </svg>
+          <figcaption>图 3 · 用户只需要记住两个命令。PDF 参数兼容转换发生在 router 内部，随后调用内部模块，不暴露独立 launcher。</figcaption>
+        </figure>
+        <h3>PDF 的数据路径</h3>
+        <p>输入格式仍由 Calibre 插件解析，转换成统一 OEB 表示。内部 PDF 后端把 OEB 合并为可打印 HTML，保留 CSS、图片、字体与章节结构，再交给 WeasyPrint/Pango/Cairo 生成 PDF。这个边界保留了 Calibre 擅长的电子书语义转换，同时避开 Qt WebEngine。</p>
+        <h3>参数兼容</h3>
+        <p>router 接受 Talebook 已使用的 Calibre PDF 参数，将纸张和边距映射为内部 WeasyPrint 参数；与 PDF 后端无关、但常见于既有调用的选项会被有选择地忽略或透传。非 PDF 输出不经过该翻译层。</p>
+      </section>
+
+      <section id="runtime">
+        <div class="section-no">07 / Runtime</div>
+        <h2>运行时文件系统与环境</h2>
+        <table>
+          <thead><tr><th>路径</th><th>职责</th></tr></thead>
+          <tbody>
+            <tr><td><code>/usr/bin/python3</code></td><td>Debian 系统 Python 3.13，Talebook 与 Calibre 共用</td></tr>
+            <tr><td><code>/usr/bin/ebook-convert</code></td><td>统一格式转换入口，内部处理 PDF 分流</td></tr>
+            <tr><td><code>/usr/bin/calibredb</code></td><td>书库、元数据与封面 CLI</td></tr>
+            <tr><td><code>/usr/lib/calibre</code></td><td>入口脚本、Calibre Python 源码与必要的 Debian Python overlay</td></tr>
+            <tr><td><code>/usr/share/calibre</code></td><td>保留的 Calibre 资源</td></tr>
+            <tr><td><code>/usr/lib/calibre/calibre/plugins</code></td><td>14 个白名单原生扩展</td></tr>
+            <tr><td><code>/usr/lib/talebook-calibre/lib</code></td><td>ELF 依赖闭包中非系统重复的动态库</td></tr>
+            <tr><td><code>/usr/lib/talebook-calibre/bin</code></td><td>Poppler 等辅助程序</td></tr>
+            <tr><td><code>/etc/talebook-calibre/fonts</code></td><td>独立 Fontconfig 配置与缓存位置</td></tr>
+          </tbody>
+        </table>
+        <pre><button class="copy" type="button">COPY</button><code>CALIBRE_STANDALONE_CONVERTER=1
+CALIBRE_STANDALONE_FORBID_QT=1
+PIP_BREAK_SYSTEM_PACKAGES=1
+PYTHONPATH=/usr/lib/calibre:...
+LD_LIBRARY_PATH=/usr/lib/talebook-calibre/lib:...
+PATH=/usr/lib/talebook-calibre/bin:$PATH</code></pre>
+        <p><code>CALIBRE_STANDALONE_FORBID_QT</code> 是运行期防回归开关：如果保留路径再次引入 Qt，会在测试中暴露，而不是静默扩大镜像。它不是用来掩盖已存在的 Qt 动态库；成品层的文件与 ELF 检查承担后一道保证。</p>
+      </section>
+
+      <section id="files">
+        <div class="section-no">08 / Files</div>
+        <h2>相对 Master 的具体文件</h2>
+        <p>以下按最终职责列出当前实现文件。列表只描述现存架构，不记录过程中被否决或撤销的实验方案。</p>
+
+        <h3>容器、发布与项目约束</h3>
+        <ul class="file-list">
+          <li>.dockerignore</li>
+          <li>.github/workflows/build-base.yml</li>
+          <li>.gitignore</li>
+          <li>AGENTS.md</li>
+          <li>Dockerfile.base</li>
+          <li>Makefile</li>
+        </ul>
+        <p><code>Dockerfile.base</code> 定义五阶段构建；workflow 在 amd64/arm64 上先测试后发布，并只允许手动发布镜像；<code>AGENTS.md</code> 固化公共命令、Qt 边界和验证规则。</p>
+
+        <h3>镜像组装与公开入口</h3>
+        <ul class="file-list">
+          <li>packaging/build-system-runtime-from-debian.sh</li>
+          <li>packaging/extract-debian-packages.sh</li>
+          <li>packaging/smoke-test.sh</li>
+          <li>packaging/entrypoints/ebook-convert</li>
+          <li>packaging/entrypoints/ebook_convert_router.py</li>
+          <li>packaging/entrypoints/calibredb</li>
+          <li>packaging/entrypoints/run_calibredb.py</li>
+          <li>packaging/entrypoints/talebook_calibre_env.py</li>
+        </ul>
+        <p>两个 shell 入口只负责进入系统 Python；共享环境模块设置路径、字体和 standalone 开关；router 只对 PDF 目标做内部分支。两个 packaging 脚本完成 Debian 文件提取、ELF 闭包、strip、Qt 拒绝和系统库去重。</p>
+
+        <h3>Standalone 构建工具</h3>
+        <ul class="file-list">
+          <li>setup/build_standalone_ebook_convert_combined_linux_local.py</li>
+          <li>setup/build_standalone_ebook_convert_linux_local.py</li>
+          <li>setup/build_standalone_ebook_convert_local.py</li>
+          <li>setup/standalone_build_common.py</li>
+          <li>setup/weasy_pdf_runtime.py</li>
+          <li>setup/standalone_ebook_convert_smoke.py</li>
+          <li>setup/standalone_ebook_convert_sample_matrix.py</li>
+          <li>setup/standalone_ebook_convert_reference_compare.py</li>
+          <li>setup/build_environment.py</li>
+          <li>setup/commands.py</li>
+          <li>setup/extensions.json</li>
+          <li>setup/installers.py</li>
+        </ul>
+        <p>combined builder 生成共享运行时，<code>weasy_pdf_runtime.py</code> 只负责内部 PDF 依赖层；其余脚本提供本地构建、插件/样本验证与参考结果比较。Calibre 原有 setup 文件增加 standalone 构建目标和必要扩展声明。</p>
+
+        <h3>Calibre 运行时代码</h3>
+        <ul class="file-list">
+          <li>src/calibre/customize/standalone_builtins.py</li>
+          <li>src/calibre/customize/ui.py</li>
+          <li>src/calibre/ebooks/conversion/standalone_binary.py</li>
+          <li>src/calibre/ebooks/conversion/standalone_common.py</li>
+          <li>src/calibre/ebooks/conversion/weasy_pdf.py</li>
+          <li>src/calibre/ebooks/conversion/plugins/mobi_output.py</li>
+          <li>src/calibre/ebooks/docx/images.py</li>
+          <li>src/calibre/ebooks/mobi/reader/mobi6.py</li>
+          <li>src/calibre/ebooks/mobi/utils.py</li>
+          <li>src/calibre/ebooks/mobi/writer2/resources.py</li>
+          <li>src/calibre/utils/img_shim.py</li>
+          <li>src/calibre/utils/standalone_img.py</li>
+          <li>src/calibre/utils/magick/draw.py</li>
+          <li>src/calibre/utils/localization.py</li>
+          <li>src/calibre/utils/safe_atexit.py</li>
+        </ul>
+        <p>这里完成插件白名单、统一转换入口、内部 PDF 后端和 Pillow 图像替换。DOCX/MOBI 的热路径改为通过 shim 使用图像 API；localization 与退出钩子避免在服务器模式导入 GUI 设施。</p>
+
+        <h3>Calibre 构建器兼容与说明</h3>
+        <ul class="file-list">
+          <li>bypy/standalone_common.py</li>
+          <li>bypy/linux/__main__.py</li>
+          <li>bypy/linux/main.c</li>
+          <li>bypy/macos/__main__.py</li>
+          <li>bypy/README.rst</li>
+          <li>docs/standalone-ebook-convert.md</li>
+          <li>design/20260716-talebook-base-noqt-runtime.active.html</li>
+        </ul>
+        <p><code>bypy</code> 变化让上游构建器理解 standalone 入口和环境；Markdown 文档提供日常维护命令，本 HTML 是最终架构基线。</p>
+      </section>
+
+      <section id="verification">
+        <div class="section-no">09 / Verification</div>
+        <h2>最终验证证据</h2>
+        <p>验证重点不是“某个转换样例能跑”，而是能力、体积与依赖边界同时成立。</p>
+        <table>
+          <thead><tr><th>验证层</th><th>最终断言</th><th>结果</th></tr></thead>
+          <tbody>
+            <tr><td>源码语法</td><td>router、combined builder、PDF runtime/backend、共享转换模块可编译</td><td class="status-pass">PASS · 2026-07-16</td></tr>
+            <tr><td>Shell 语法</td><td>镜像组装、入口与 smoke 脚本通过 <code>sh -n</code></td><td class="status-pass">PASS · 2026-07-16</td></tr>
+            <tr><td>转换器自测</td><td><code>standalone_ebook_convert_smoke.py --self-test</code></td><td class="status-pass">PASS · 2026-07-16</td></tr>
+            <tr><td>镜像构建与 smoke</td><td><code>make test</code>：命令边界、Qt/ELF、转换、数据库、CJK PDF</td><td class="status-pass">PASS · 2026-07-16</td></tr>
+            <tr><td>Talebook 集成</td><td>使用 slim base 运行 Talebook 完整测试</td><td class="status-pass">575 passed, 1 skipped · 已确认基线</td></tr>
+            <tr><td>镜像体积</td><td>arm64 slim 镜像 <code>sha256:dcfb8e72abbf…</code></td><td class="status-pass">356,152,318 bytes · 339.65 MiB</td></tr>
+          </tbody>
+        </table>
+        <h3>镜像 smoke 覆盖</h3>
+        <ul>
+          <li><code>/usr</code> 不超过 400 MiB，且最终层没有 gcc、build-essential、python3-dev、python3-venv。</li>
+          <li>未安装 Debian <code>calibre</code> 软件包；公开命令集合固定为两个。</li>
+          <li>PyQt 无法导入，文件系统无 Qt/PyQt，所有 ELF 不链接 Qt 且没有缺失依赖。</li>
+          <li>QuickJS、Python 路径、动态库路径、字体配置和 Poppler 辅助程序可用。</li>
+          <li>Pillow 图像矩阵、历史 <code>thumbnail()</code> API、数据库 <code>set_cover</code>/<code>set_metadata</code> 可用。</li>
+          <li>EPUB→MOBI/AZW3/PDF 成功；中文与 emoji PDF 可生成并由 <code>pdftotext</code> 读取。</li>
+        </ul>
+      </section>
+
+      <section id="constraints">
+        <div class="section-no">10 / Constraints</div>
+        <h2>约束与最终结论</h2>
+        <h3>明确约束</h3>
+        <ul>
+          <li>该镜像是 Talebook 的 Calibre 能力切片，不承诺完整 Calibre 命令、插件或 GUI 兼容性。</li>
+          <li>新增输入/输出插件必须同时审计 Python import、资源文件、原生扩展和 ELF 闭包，不能只把模块名加入白名单。</li>
+          <li>PDF 版式以 WeasyPrint 的 HTML/CSS 打印模型为准，不追求与 Qt WebEngine 像素级一致。</li>
+          <li>升级 Debian、Calibre 或 Python 后，必须重新执行双架构镜像 smoke 和 Talebook 集成测试。</li>
+          <li>发布流程不得合并或改写 <code>master</code>；本设计只比较基线，不包含分支合并动作。</li>
+        </ul>
+        <div class="callout">
+          <strong>Final model</strong>
+          最终镜像不是“安装 Calibre 后删除 Qt”，而是“从 Talebook 需要的命令出发，构造 Calibre 能力与 ELF 依赖的双白名单”。源码适配让转换路径不再需要 Qt；Debian 解包、动态依赖闭包和负向 smoke 则保证成品物理上也没有 Qt。
+        </div>
+      </section>
+
+      <footer>
+        <p>文档基线：本地 <code>master@f36a8651c73b5049fb9885cf3366e32845e2d8c5</code>。实现快照：<code>only-ebook-convert@d20aa5c7253</code> 加 2026-07-16 工作树修改。本文为离线单文件 HTML，不依赖网络字体、脚本或图片。</p>
+      </footer>
+    </main>
+  </div>
+  <script>
+    (() => {
+      const progress = document.getElementById('progress');
+      const links = [...document.querySelectorAll('.toc a')];
+      const sections = links.map(link => document.querySelector(link.getAttribute('href'))).filter(Boolean);
+      const update = () => {
+        const max = document.documentElement.scrollHeight - innerHeight;
+        progress.style.width = `${max > 0 ? (scrollY / max) * 100 : 0}%`;
+        let current = sections[0];
+        for (const section of sections) if (section.getBoundingClientRect().top <= 140) current = section;
+        links.forEach(link => link.classList.toggle('active', current && link.getAttribute('href') === `#${current.id}`));
+      };
+      addEventListener('scroll', update, {passive: true});
+      addEventListener('resize', update);
+      update();
+      document.querySelectorAll('.copy').forEach(button => button.addEventListener('click', async () => {
+        const value = button.parentElement.querySelector('code').innerText;
+        try { await navigator.clipboard.writeText(value); button.textContent = 'COPIED'; }
+        catch { button.textContent = 'SELECT'; }
+        setTimeout(() => button.textContent = 'COPY', 1400);
+      }));
+    })();
+  </script>
+</body>
+</html>

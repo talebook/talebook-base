@@ -3,11 +3,11 @@ __copyright__ = '2026, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
 '''
-Standalone ebook-convert-pdf entry point.
+Internal WeasyPrint PDF backend for the public ebook-convert command.
 
-This binary intentionally keeps PDF generation separate from the small no-Qt
-ebook-convert package. It uses calibre's input pipeline to normalize supported
-book formats into OEB, then renders that OEB with WeasyPrint.
+The public ebook-convert router selects this backend for .pdf outputs. It uses
+calibre's input pipeline to normalize supported book formats into OEB, then
+renders that OEB with WeasyPrint. This module is not a separate public command.
 '''
 
 import argparse
@@ -25,7 +25,7 @@ os.environ.setdefault('CALIBRE_STANDALONE_CONVERTER', '1')
 from calibre.ebooks.conversion.standalone_common import SUPPORTED_INPUT_FORMATS, extension_of, install_qt_import_guard
 
 if os.environ.get('CALIBRE_STANDALONE_FORBID_QT') == '1':
-    install_qt_import_guard('ebook-convert-pdf')
+    install_qt_import_guard('ebook-convert')
 
 XHTML_MEDIA_TYPES = frozenset({'application/xhtml+xml', 'text/html'})
 CSS_MEDIA_TYPES = frozenset({'text/css'})
@@ -164,7 +164,7 @@ img, svg {{ max-width: 100%; height: auto; }}
 '''
     return (
         '<!doctype html><html><head><meta charset="utf-8">'
-        f'<title>{html.escape(title or "ebook-convert-pdf")}</title>'
+        f'<title>{html.escape(title or "ebook-convert")}</title>'
         f'{"".join(css_links)}<style>{base_css}</style></head>'
         f'<body>{"".join(chunks)}</body></html>'
     ), str(opf_dir)
@@ -192,9 +192,9 @@ def convert(input_path, output_path, passthrough_args=(), page_size='A4', margin
     input_fmt = extension_of(input_path)
     if input_fmt not in SUPPORTED_INPUT_FORMATS:
         allowed = ', '.join(sorted(SUPPORTED_INPUT_FORMATS))
-        raise ValueError(f'Unsupported input format for ebook-convert-pdf: {input_fmt or "open ebook/folder"}. Allowed: {allowed}')
+        raise ValueError(f'Unsupported PDF input format for ebook-convert: {input_fmt or "open ebook/folder"}. Allowed: {allowed}')
     if extension_of(output_path) != 'pdf':
-        raise ValueError('ebook-convert-pdf output path must end in .pdf')
+        raise ValueError('ebook-convert PDF backend requires an output path ending in .pdf')
 
     output_parent = os.path.dirname(os.path.abspath(output_path))
     if output_parent:
@@ -211,7 +211,7 @@ def convert(input_path, output_path, passthrough_args=(), page_size='A4', margin
 
 def main(argv=sys.argv):
     parser = argparse.ArgumentParser(
-        prog='ebook-convert-pdf',
+        prog='ebook-convert',
         description='Convert supported ebook formats to PDF using calibre input plugins and WeasyPrint.',
     )
     parser.add_argument('input')
@@ -235,7 +235,7 @@ def main(argv=sys.argv):
             page_size=weasy_opts.weasy_page_size, margin=weasy_opts.weasy_margin,
         )
     except Exception as err:
-        print(f'ebook-convert-pdf: {err}', file=sys.stderr)
+        print(f'ebook-convert: PDF backend: {err}', file=sys.stderr)
         return 1
 
 

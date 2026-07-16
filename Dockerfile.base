@@ -5,7 +5,7 @@
 #
 # 不再把完整 calibre / PyQt / Qt runtime 带进最终镜像。构建阶段使用 Debian
 # calibre 包作为已验证的运行时输入，现场裁剪出「精简版 calibre runtime」：
-# 单个共享 runtime + ebook-convert / ebook-convert-pdf / calibredb 入口。
+# 单个共享 runtime + ebook-convert / calibredb 入口；PDF 由 ebook-convert 内部分流。
 #
 # 主 Dockerfile 通过 FROM 引用本镜像，避免每次构建重复解压 runtime / 编译扩展。
 # 构建/发布见 Makefile 的 build-base / push-base 与 .github/workflows/build-base.yml。
@@ -139,7 +139,7 @@ ARG TARGETARCH
 ARG TARGETVARIANT
 
 COPY --from=runtime-build /opt/talebook-system-root/ /
-COPY --chmod=0755 packaging/entrypoints/ebook-convert packaging/entrypoints/ebook-convert-pdf packaging/entrypoints/calibredb /usr/bin/
+COPY --chmod=0755 packaging/entrypoints/ebook-convert packaging/entrypoints/calibredb /usr/bin/
 COPY --chmod=0644 packaging/entrypoints/*.py /usr/lib/calibre/
 
 RUN --mount=from=python-wheel-build,source=/opt/wheels,target=/tmp/talebook-wheels,ro \
