@@ -4,7 +4,7 @@
 '''
 Build the shared Linux Calibre runtime used by talebook-base. It combines the
 restricted converter with the internal WeasyPrint PDF backend in one filesystem
-tree. Public commands are installed later by Dockerfile.base; this staging
+tree. Public commands are installed later by Dockerfile; this staging
 package does not expose a separate PDF command.
 
 This is a developer/test packager, intentionally separate from the release bypy

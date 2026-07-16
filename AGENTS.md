@@ -30,7 +30,7 @@ to keep Qt, GUI, device, server, and scraper dependencies out of the runtime.
 
 ## Important paths
 
-- `Dockerfile.base`: multi-stage slim base-image build.
+- `Dockerfile`: multi-stage slim base-image build.
 - `Makefile`: local `build-base`, `test`, and `push-base` entry points.
 - `packaging/`: Debian package extraction, system-runtime assembly, public
   launchers, CLI routing, and image-level smoke tests.
@@ -53,7 +53,7 @@ git diff --check
 make test
 ```
 
-`make test` builds `Dockerfile.base` and runs `packaging/smoke-test.sh` in the
+`make test` builds `Dockerfile` and runs `packaging/smoke-test.sh` in the
 resulting image. The image smoke must verify both public Calibre commands, the
 absence of the temporary `ebook-convert-pdf` command and PyQt/Qt, Calibre database creation/listing, and EPUB conversion to
 MOBI, AZW3, and PDF, including CJK PDF text extraction. It must also import the

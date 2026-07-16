@@ -5,7 +5,7 @@ on:
     paths:
       - .dockerignore
       - .github/workflows/build-base.yml
-      - Dockerfile.base
+      - Dockerfile
       - Makefile
       - packaging/**
       - resources/**
@@ -17,7 +17,7 @@ on:
     paths:
       - .dockerignore
       - .github/workflows/build-base.yml
-      - Dockerfile.base
+      - Dockerfile
       - Makefile
       - packaging/**
       - resources/**
@@ -81,7 +81,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: Dockerfile.base
+          file: Dockerfile
           platforms: ${{ matrix.platform }}
           load: true
           push: false
@@ -134,7 +134,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: Dockerfile.base
+          file: Dockerfile
           platforms: ${{ inputs.platforms }}
           push: true
           tags: |

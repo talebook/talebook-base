@@ -479,7 +479,7 @@
 
     <section id="stages">
       <h2 class="section-title"><span class="num">02</span><span>构建期下载 Qt，运行期为什么能没有</span></h2>
-      <p><code>Dockerfile.base</code> 的第一阶段基于 <code>debian:13-slim</code>，通过 apt 的 <code>--download-only</code> 模式获取 <code>calibre</code>、<code>weasyprint</code> 与 <code>poppler-utils</code> 的依赖闭包。apt 会下载 Qt 依赖，但不会运行 dpkg 安装脚本；<code>extract-debian-packages.sh</code> 随后按包名跳过 Qt/PyQt，只解开其它 <code>.deb</code>。</p>
+      <p><code>Dockerfile</code> 的第一阶段基于 <code>debian:13-slim</code>，通过 apt 的 <code>--download-only</code> 模式获取 <code>calibre</code>、<code>weasyprint</code> 与 <code>poppler-utils</code> 的依赖闭包。apt 会下载 Qt 依赖，但不会运行 dpkg 安装脚本；<code>extract-debian-packages.sh</code> 随后按包名跳过 Qt/PyQt，只解开其它 <code>.deb</code>。</p>
       <p><code>packaging/build-system-runtime-from-debian.sh</code> 再调用白名单与 ELF 闭包构建器，并把结果转换成最终系统路径。它以最终 Debian 系统层为参照，只删除文件内容完全相同的动态库副本。独立的 <code>python-wheel-build</code> 阶段用编译工具链生成 QuickJS wheel；最后一阶段复用只含运行依赖的 <code>runtime-system</code>，通过只读 BuildKit mount 安装 wheel，再叠加裁剪后的代码、资源、helper 与原生库。私有 Python、编译器、headers 和 wheel 中间文件都不会进入发布镜像。</p>
 
       <div class="cards">
@@ -505,7 +505,7 @@
         <p>本地 arm64 镜像从 740,220,119 bytes（约 706 MiB）降到 356,153,818 bytes（约 340 MiB），减少 51.9%；<code>/usr</code> 从 701 MiB 降到 346 MiB。主要收益来自移出约 345 MiB 的编译工具链，以及删除 45 份与系统层完全相同的动态库。</p>
       </div>
 
-      <pre><code># Dockerfile.base 的关键边界（概念化）
+      <pre><code># Dockerfile 的关键边界（概念化）
 FROM debian:13-slim AS deb-packages
 RUN apt-get install --download-only calibre weasyprint poppler-utils
 RUN extract-debian-packages /var/cache/apt/archives /opt/debian-root
@@ -812,7 +812,7 @@ PIP_BREAK_SYSTEM_PACKAGES=1</code></pre>
         <table>
           <thead><tr><th>状态与文件</th><th>具体修改</th><th>是否进入当前 slim 链路</th></tr></thead>
           <tbody>
-            <tr><td><code>A · Dockerfile.base</code></td><td>建立 <code>deb-packages</code>、<code>runtime-system</code>、<code>python-wheel-build</code>、<code>runtime-build</code>、<code>base</code> 五阶段；最终层基于 <code>debian:13-slim</code>，使用系统 Python，并只安装预编译 QuickJS wheel。</td><td class="accent">是 · 顶层构建定义</td></tr>
+            <tr><td><code>A · Dockerfile</code></td><td>建立 <code>deb-packages</code>、<code>runtime-system</code>、<code>python-wheel-build</code>、<code>runtime-build</code>、<code>base</code> 五阶段；最终层基于 <code>debian:13-slim</code>，使用系统 Python，并只安装预编译 QuickJS wheel。</td><td class="accent">是 · 顶层构建定义</td></tr>
             <tr><td><code>A · .dockerignore</code><br><code>M · .gitignore</code></td><td>把 Docker build context 收窄到 Dockerfile、setup、src、resources、packaging；忽略本地构建产物，避免无关文件进入上下文。</td><td class="accent">是 · 构建输入</td></tr>
             <tr><td><code>A · Makefile</code></td><td>增加 <code>build-base</code>、<code>test</code>、<code>push-base</code>；本地 <code>make test</code> 构建镜像后运行同一份容器 smoke。</td><td class="accent">是 · 本地入口</td></tr>
             <tr><td><code>A · .github/workflows/build-base.yml</code></td><td>amd64/arm64 矩阵构建与 smoke；<code>/usr ≤ 400 MiB</code>；只有手动 workflow 且 <code>push_image=true</code> 才发布。</td><td class="accent">是 · CI</td></tr>
@@ -905,7 +905,7 @@ find /usr/lib/calibre /usr/lib/talebook-calibre -type f -exec file {} \; \
     <footer>
       <p>DOCUMENT BASIS · Repository files in the current talebook-base workspace. No external assets, fonts, scripts, or network references are used by this HTML.</p>
       <p>CHANGE SCOPE · 53 files in origin/master...d20aa5c725 · branch only-ebook-convert · inventory verified 2026-07-16.</p>
-      <p>KEY SOURCES · Dockerfile.base · packaging/extract-debian-packages.sh · packaging/build-system-runtime-from-debian.sh · setup/build_standalone_ebook_convert_linux_local.py · src/calibre/customize/standalone_builtins.py · src/calibre/utils/standalone_img.py · src/calibre/utils/magick/draw.py · src/calibre/ebooks/conversion/weasy_pdf_binary.py · packaging/smoke-test.sh</p>
+      <p>KEY SOURCES · Dockerfile · packaging/extract-debian-packages.sh · packaging/build-system-runtime-from-debian.sh · setup/build_standalone_ebook_convert_linux_local.py · src/calibre/customize/standalone_builtins.py · src/calibre/utils/standalone_img.py · src/calibre/utils/magick/draw.py · src/calibre/ebooks/conversion/weasy_pdf_binary.py · packaging/smoke-test.sh</p>
     </footer>
   </main>
 
