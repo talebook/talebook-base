@@ -1,7 +1,7 @@
 .PHONY: build-base push-base test clean
 
 BASE ?= talebook/talebook-base
-BASE_VER ?= slim-1.0
+BASE_VER ?= slim-v8.5.0
 BUILD_COUNTRY ?=
 BASE_PLATFORMS ?= linux/arm64
 

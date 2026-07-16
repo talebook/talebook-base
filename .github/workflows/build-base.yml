@@ -34,7 +34,7 @@ on:
         description: Image version tag
         required: true
         type: string
-        default: slim-1.0
+        default: slim-v8.5.0
       platforms:
         description: Comma-separated platforms for the published image
         required: true
