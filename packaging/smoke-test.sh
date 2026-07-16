@@ -85,6 +85,7 @@ python3 - <<'PY'
 import sys
 from io import BytesIO
 
+import _cffi_backend
 import calibre
 import quickjs
 from PIL import Image

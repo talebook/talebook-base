@@ -467,6 +467,24 @@ def self_test():
     ) == '/tmp/ebook-convert.app'
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    setup_dir = os.path.join(root, 'setup')
+    sys.path.insert(0, setup_dir)
+    try:
+        spec = importlib.util.spec_from_file_location(
+            '_weasy_pdf_runtime_self_test', os.path.join(setup_dir, 'weasy_pdf_runtime.py')
+        )
+        weasy_runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(weasy_runtime)
+    finally:
+        sys.path.pop(0)
+    for name in (
+        '_cffi_backend.cpython-313-aarch64-linux-gnu.so',
+        '_cffi_backend.cpython-313-arm-linux-gnueabihf.so',
+        '_cffi_backend.cpython-313-x86_64-linux-gnu.so',
+    ):
+        assert weasy_runtime.is_weasy_site_package(name)
+    assert not weasy_runtime.is_weasy_site_package('_cffi_backend.cpython-313-arm-linux-gnueabihf.dylib')
+
     standalone_builtins = open(os.path.join(root, 'src', 'calibre', 'customize', 'standalone_builtins.py'), encoding='utf-8').read()
     standalone_binary = open(os.path.join(root, 'src', 'calibre', 'ebooks', 'conversion', 'standalone_binary.py'), encoding='utf-8').read()
     for name in ('HTMLInput', 'OEBOutput'):

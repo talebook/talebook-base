@@ -13,16 +13,6 @@ import build_standalone_ebook_convert_linux_local as base
 
 
 WEASY_SITE_PACKAGES = frozenset({
-    '_cffi_backend.cpython-313-aarch64-linux-gnu.so',
-    '_cffi_backend.cpython-312-aarch64-linux-gnu.so',
-    '_cffi_backend.cpython-311-aarch64-linux-gnu.so',
-    '_cffi_backend.cpython-310-aarch64-linux-gnu.so',
-    '_cffi_backend.cpython-39-aarch64-linux-gnu.so',
-    '_cffi_backend.cpython-313-x86_64-linux-gnu.so',
-    '_cffi_backend.cpython-312-x86_64-linux-gnu.so',
-    '_cffi_backend.cpython-311-x86_64-linux-gnu.so',
-    '_cffi_backend.cpython-310-x86_64-linux-gnu.so',
-    '_cffi_backend.cpython-39-x86_64-linux-gnu.so',
     'cffi',
     'cssselect2',
     'fontTools',
@@ -62,6 +52,12 @@ WEASY_OVERLAY_FILES = (
 )
 
 
+def is_weasy_site_package(name):
+    return name in WEASY_SITE_PACKAGES or (
+        name.startswith('_cffi_backend.') and name.endswith('.so')
+    )
+
+
 def copy_weasy_site_packages(dest):
     dest.mkdir(parents=True, exist_ok=True)
     for root in base.PYTHON_PACKAGE_ROOTS:
@@ -69,7 +65,7 @@ def copy_weasy_site_packages(dest):
             continue
         for item in root.iterdir():
             name = item.name
-            if name not in WEASY_SITE_PACKAGES:
+            if not is_weasy_site_package(name):
                 continue
             if name.endswith(('.dist-info', '.egg-info')):
                 continue
