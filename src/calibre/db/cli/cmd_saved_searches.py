@@ -6,7 +6,6 @@ readonly = False
 version = 0  # change this if you change signature of implementation()
 
 from calibre import prints
-from calibre.srv.changes import saved_searches
 from polyglot.builtins import iteritems
 
 
@@ -19,12 +18,16 @@ def implementation(db, notify_changes, action, *args):
         name, val = args
         db.saved_search_add(name, val)
         if notify_changes is not None:
+            from calibre.srv.changes import saved_searches
+
             notify_changes(saved_searches(added=(name,)))
         return
     if action == 'remove':
         name = args[0]
         db.saved_search_delete(name)
         if notify_changes is not None:
+            from calibre.srv.changes import saved_searches
+
             notify_changes(saved_searches(removed=(name,)))
         return
 

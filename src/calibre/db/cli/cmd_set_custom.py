@@ -4,7 +4,6 @@
 
 from calibre import prints
 from calibre.db import _get_series_values
-from calibre.srv.changes import metadata
 
 readonly = False
 version = 0  # change this if you change signature of implementation()
@@ -35,6 +34,8 @@ def implementation(db, notify_changes, col, book_id, val, append):
                 val = fm['is_multiple']['list_to_ui'].join(val)
             msg = _('Data set to: {}').format(val)
     if is_remote:
+        from calibre.srv.changes import metadata
+
         notify_changes(metadata((book_id,)))
     return True, msg
 

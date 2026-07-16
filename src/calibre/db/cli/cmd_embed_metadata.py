@@ -4,7 +4,6 @@
 
 from calibre import prints
 from calibre.db.cli import integers_from_string
-from calibre.srv.changes import formats_added
 
 readonly = False
 version = 0  # change this if you change signature of implementation()
@@ -17,6 +16,8 @@ def implementation(db, notify_changes, book_id, only_fmts):
         if db.has_id(book_id):
             db.embed_metadata((book_id,), only_fmts=only_fmts)
             if notify_changes is not None:
+                from calibre.srv.changes import formats_added
+
                 notify_changes(formats_added({book_id: db.formats(book_id)}))
             return db.field_for('title', book_id)
 

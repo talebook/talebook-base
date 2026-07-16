@@ -8,7 +8,6 @@ from calibre import prints
 from calibre.ebooks.metadata.book.base import field_from_string
 from calibre.ebooks.metadata.book.serialize import read_cover
 from calibre.ebooks.metadata.opf import get_metadata
-from calibre.srv.changes import metadata
 from polyglot.builtins import iteritems
 
 readonly = False
@@ -17,6 +16,9 @@ version = 0  # change this if you change signature of implementation()
 
 def implementation(db, notify_changes, action, *args):
     is_remote = notify_changes is not None
+    if is_remote:
+        from calibre.srv.changes import metadata
+
     if action == 'field_metadata':
         return db.field_metadata
     if action == 'opf':

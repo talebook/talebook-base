@@ -5,8 +5,6 @@
 import os
 from io import BytesIO
 
-from calibre.srv.changes import formats_added
-
 readonly = False
 version = 0  # change this if you change signature of implementation()
 
@@ -23,6 +21,8 @@ def implementation(db, notify_changes, book_id, data, fmt, replace):
     else:
         added = db.add_format(book_id, fmt, data, replace=replace)
     if is_remote and added and not relpath:
+        from calibre.srv.changes import formats_added
+
         notify_changes(formats_added({book_id: (fmt,)}))
     return added
 

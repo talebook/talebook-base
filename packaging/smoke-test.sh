@@ -50,6 +50,7 @@ fi
 
 test ! -L /usr/lib/calibre
 test ! -L /usr/share/calibre
+test ! -e "$CALIBRE_ROOT/calibre/srv"
 test -x "$HELPER_ROOT/pdftotext"
 test ! -e "$CALIBRE_ROOT/calibre/ebooks/conversion/plugins/standalone_pdf_output.py"
 test -s /usr/share/calibre/talebook-debian-package-version
@@ -148,7 +149,39 @@ assert result.size == (80, 40)
 PY
 
 calibredb --version
-rm -rf /tmp/talebook-calibre-lib /tmp/convert-test.* /tmp/convert-test-*
+rm -rf /tmp/talebook-calibre-lib /tmp/talebook-calibredb-cli-lib /tmp/convert-test.* /tmp/convert-test-*
+calibredb add --library-path /tmp/talebook-calibredb-cli-lib "$FIXTURE"
+calibredb list --library-path /tmp/talebook-calibredb-cli-lib > /tmp/talebook-calibredb-list.txt
+grep -F 'Quick Start Guide' /tmp/talebook-calibredb-list.txt
+calibredb set_metadata --library-path /tmp/talebook-calibredb-cli-lib --field title:'Talebook CLI smoke' 1
+calibredb show_metadata --library-path /tmp/talebook-calibredb-cli-lib 1 > /tmp/talebook-calibredb-metadata.txt
+grep -F 'Talebook CLI smoke' /tmp/talebook-calibredb-metadata.txt
+printf '%s\n' 'Talebook calibredb format smoke' > /tmp/talebook-calibredb-format.txt
+calibredb add_format --library-path /tmp/talebook-calibredb-cli-lib 1 /tmp/talebook-calibredb-format.txt
+calibredb list --library-path /tmp/talebook-calibredb-cli-lib --fields id,title,formats > /tmp/talebook-calibredb-formats.txt
+grep -F '.txt' /tmp/talebook-calibredb-formats.txt
+calibredb remove_format --library-path /tmp/talebook-calibredb-cli-lib 1 TXT
+calibredb list --library-path /tmp/talebook-calibredb-cli-lib --fields id,title,formats > /tmp/talebook-calibredb-formats-after-remove.txt
+if grep -F '.txt' /tmp/talebook-calibredb-formats-after-remove.txt; then
+    echo "calibredb remove_format left the TXT format in the library" >&2
+    exit 1
+fi
+calibredb saved_searches --library-path /tmp/talebook-calibredb-cli-lib add cli-smoke 'title:"Talebook CLI smoke"'
+calibredb saved_searches --library-path /tmp/talebook-calibredb-cli-lib list > /tmp/talebook-calibredb-searches.txt
+grep -F 'Name: cli-smoke' /tmp/talebook-calibredb-searches.txt
+calibredb saved_searches --library-path /tmp/talebook-calibredb-cli-lib remove cli-smoke
+calibredb add_custom_column --library-path /tmp/talebook-calibredb-cli-lib cli_smoke 'CLI Smoke' text
+calibredb set_custom --library-path /tmp/talebook-calibredb-cli-lib cli_smoke 1 passed
+calibredb show_metadata --library-path /tmp/talebook-calibredb-cli-lib 1 > /tmp/talebook-calibredb-custom.txt
+grep -F 'passed' /tmp/talebook-calibredb-custom.txt
+calibredb embed_metadata --library-path /tmp/talebook-calibredb-cli-lib 1 > /tmp/talebook-calibredb-embed.txt
+grep -F 'Talebook CLI smoke' /tmp/talebook-calibredb-embed.txt
+calibredb remove --library-path /tmp/talebook-calibredb-cli-lib 1
+calibredb list --library-path /tmp/talebook-calibredb-cli-lib > /tmp/talebook-calibredb-after-remove.txt
+if grep -F 'Talebook CLI smoke' /tmp/talebook-calibredb-after-remove.txt; then
+    echo "calibredb remove left the book in the library" >&2
+    exit 1
+fi
 python3 - <<'PY'
 from calibre.db.legacy import LibraryDatabase
 

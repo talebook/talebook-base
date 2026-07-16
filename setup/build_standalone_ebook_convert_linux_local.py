@@ -139,6 +139,16 @@ CORE_SYSTEM_LIB_PREFIXES = (
 )
 STANDALONE_OVERLAY_FILES = (
     'calibre/customize/standalone_builtins.py',
+    # Keep local calibredb mutations usable after calibre.srv is pruned. These
+    # overlays defer Content Server change-event imports to remote execution.
+    'calibre/db/cli/cmd_add.py',
+    'calibre/db/cli/cmd_add_format.py',
+    'calibre/db/cli/cmd_embed_metadata.py',
+    'calibre/db/cli/cmd_remove.py',
+    'calibre/db/cli/cmd_remove_format.py',
+    'calibre/db/cli/cmd_saved_searches.py',
+    'calibre/db/cli/cmd_set_custom.py',
+    'calibre/db/cli/cmd_set_metadata.py',
     'calibre/ebooks/docx/images.py',
     'calibre/ebooks/conversion/standalone_common.py',
     'calibre/ebooks/conversion/standalone_binary.py',

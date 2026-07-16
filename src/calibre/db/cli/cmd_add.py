@@ -14,7 +14,6 @@ from calibre.ebooks.metadata import MetaInformation, string_to_authors
 from calibre.ebooks.metadata.book.serialize import read_cover, serialize_cover
 from calibre.ebooks.metadata.meta import get_metadata, metadata_from_formats
 from calibre.ptempfile import TemporaryDirectory
-from calibre.srv.changes import books_added, formats_added
 from calibre.utils.localization import canonicalize_lang
 from calibre.utils.short_uuid import uuid4
 
@@ -26,6 +25,8 @@ def empty(db, notify_changes, is_remote, args):
     mi = args[0]
     ids, duplicates = db.add_books([(mi, {})])
     if is_remote:
+        from calibre.srv.changes import books_added
+
         notify_changes(books_added(ids))
     db.dump_metadata()
     return ids, bool(duplicates)
@@ -99,6 +100,8 @@ def do_adding(db, request_id, notify_changes, is_remote, mi, format_map, add_dup
             db.update_data_for_find_identical_books(book_id, identical_books_data)
 
     if is_remote:
+        from calibre.srv.changes import books_added, formats_added
+
         notify_changes(books_added(added_ids))
         if updated_ids:
             notify_changes(formats_added({book_id: tuple(format_map) for book_id in updated_ids}))
