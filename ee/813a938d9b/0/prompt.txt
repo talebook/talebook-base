@@ -1,0 +1,41 @@
+手动运行什么？
+
+---
+
+这不是运行过吗？ https://github.com/talebook/talebook-base/actions/runs/29490944862  而且我也没看到有你说的【run workflow】的按钮
+
+---
+
+行，把 slim-v8.5.0 同步到 master 里
+
+---
+
+整个分支合并进去，替代master
+
+---
+
+默认就打开 push_image 啊
+
+---
+
+我还是没看到有run workflow
+
+---
+
+我希望打 tag 时就触发push
+
+---
+
+DOCKERHUB_TOKEN 去哪儿创建
+
+---
+
+dockerhub 这两个 secrets 添加好了
+
+---
+
+看下docker hub上面有tag了吗
+
+---
+
+为啥会有这么多的tag 。。。。
