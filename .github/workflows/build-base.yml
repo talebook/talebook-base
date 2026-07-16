@@ -17,7 +17,7 @@ on:
       - master
       - slim-v8.5.0
     tags:
-      - '*'
+      - 'slim-v*'
     paths:
       - .dockerignore
       - .github/workflows/build-base.yml
@@ -116,7 +116,7 @@ jobs:
   publish:
     name: Publish multi-platform image
     if: >-
-      startsWith(github.ref, 'refs/tags/') ||
+      (startsWith(github.ref, 'refs/tags/slim-v') && github.event.deleted != true) ||
       (github.event_name == 'workflow_dispatch' && inputs.push_image)
     needs: test
     runs-on: ubuntu-latest
