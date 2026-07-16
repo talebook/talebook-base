@@ -5,6 +5,7 @@ on:
     paths:
       - .dockerignore
       - .github/workflows/build-base.yml
+      - .github/workflows/ci.yml
       - Dockerfile
       - Makefile
       - packaging/**
@@ -17,6 +18,7 @@ on:
     paths:
       - .dockerignore
       - .github/workflows/build-base.yml
+      - .github/workflows/ci.yml
       - Dockerfile
       - Makefile
       - packaging/**

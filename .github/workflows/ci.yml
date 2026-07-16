@@ -4,7 +4,21 @@ permissions:
     contents: read # to fetch code (actions/checkout)
 
 jobs:
+    slim:
+        if: startsWith(github.ref_name, 'slim-v') || startsWith(github.head_ref, 'slim-v')
+        name: Test slim runtime sources
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout source code
+              uses: actions/checkout@v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Test standalone converter sources
+              run: python3 setup/standalone_ebook_convert_smoke.py --self-test
+
     test:
+        if: ${{ !startsWith(github.ref_name, 'slim-v') && !startsWith(github.head_ref, 'slim-v') }}
         name: Test on ${{ matrix.os }}
         runs-on: ${{ matrix.os }}
         strategy:
@@ -38,6 +52,7 @@ jobs:
                   python setup/unix-ci.py test
 
     archtest:
+        if: ${{ !startsWith(github.ref_name, 'slim-v') && !startsWith(github.head_ref, 'slim-v') }}
         name: Test on Arch
         runs-on: ubuntu-latest
         container:
