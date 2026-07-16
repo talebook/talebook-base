@@ -39,7 +39,7 @@ on:
         description: Comma-separated platforms for the published image
         required: true
         type: string
-        default: linux/amd64,linux/arm64
+        default: linux/amd64,linux/arm64,linux/arm/v7
       build_country:
         description: Set to CN to use the configured Debian mirror
         required: false
@@ -65,6 +65,8 @@ jobs:
             platform: linux/amd64
           - arch: arm64
             platform: linux/arm64
+          - arch: arm-v7
+            platform: linux/arm/v7
     steps:
       - name: Checkout source code
         uses: actions/checkout@v6.0.2

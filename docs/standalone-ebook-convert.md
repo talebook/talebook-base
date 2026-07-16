@@ -208,7 +208,8 @@ Linux 脚本中特别排除了 Debian 中依赖 Qt 的 native 插件，例如 `i
 
 2026-07-16 的本地 arm64 基线从 740,220,119 bytes（约 706 MiB）降到
 356,153,818 bytes（约 340 MiB），减少 51.9%；`/usr` 从 701 MiB 降到 346 MiB。
-`packaging/smoke-test.sh` 与双架构 CI 将 `/usr <= 400 MiB` 作为回归门禁，并拒绝最终
+`packaging/smoke-test.sh` 与 amd64、arm64、arm/v7 三架构 CI 将 `/usr <= 400 MiB`
+作为回归门禁，并拒绝最终
 镜像出现 `build-essential`、`python3-dev`、`python3-venv` 或 `gcc`。
 
 ### 正式构建（bypy 集成）

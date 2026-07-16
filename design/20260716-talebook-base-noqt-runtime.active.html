@@ -215,7 +215,7 @@
             <tr><td>PDF 输入</td><td>Calibre 完整 PDF 输入链</td><td>默认调用 Poppler <code>pdftohtml</code></td></tr>
             <tr><td>PDF 输出</td><td>Calibre Qt/WebEngine PDF 路径</td><td><code>ebook-convert</code> 内部路由到 OEB→WeasyPrint 后端</td></tr>
             <tr><td>依赖交付</td><td>完整构建/安装依赖图</td><td>Debian 包只解包所需文件，再做闭包收集、Qt 拒绝和去重</td></tr>
-            <tr><td>发布验证</td><td>通用上游测试</td><td>镜像 smoke、Qt/ELF 负向断言、双架构 CI</td></tr>
+            <tr><td>发布验证</td><td>通用上游测试</td><td>镜像 smoke、Qt/ELF 负向断言、amd64/arm64/arm/v7 三架构 CI</td></tr>
           </tbody>
         </table>
         <p>这不是 fork 出另一套转换器：EPUB、MOBI、AZW3 等主路径仍运行 Calibre 的解析、OEB 归一化和输出插件；改造集中在依赖边界、图像抽象和 PDF 渲染端。</p>
@@ -545,7 +545,7 @@ PATH=/usr/lib/talebook-calibre/bin:$PATH</code></pre>
           <li>该镜像是 Talebook 的 Calibre 能力切片，不承诺完整 Calibre 命令、插件或 GUI 兼容性。</li>
           <li>新增输入/输出插件必须同时审计 Python import、资源文件、原生扩展和 ELF 闭包，不能只把模块名加入白名单。</li>
           <li>PDF 版式以 WeasyPrint 的 HTML/CSS 打印模型为准，不追求与 Qt WebEngine 像素级一致。</li>
-          <li>升级 Debian、Calibre 或 Python 后，必须重新执行双架构镜像 smoke 和 Talebook 集成测试。</li>
+          <li>升级 Debian、Calibre 或 Python 后，必须重新执行 amd64、arm64、arm/v7 三架构镜像 smoke 和 Talebook 集成测试。</li>
           <li>Calibre 版本以目标 Debian 仓库的最高候选包为准；当前分支在构建期锁定上游版本 8.5.0、允许 Debian 安全修订更新。Debian 提供更高版本后构建会失败，并要求另开 <code>slim-vX.Y.Z</code> 分支完成兼容，不用官方最新 <code>master</code> 替代发行版基线。</li>
         </ul>
         <div class="callout">

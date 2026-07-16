@@ -3,7 +3,7 @@
 BASE ?= talebook/talebook-base
 BASE_VER ?= slim-v8.5.0
 BUILD_COUNTRY ?=
-BASE_PLATFORMS ?= linux/arm64
+BASE_PLATFORMS ?= linux/amd64,linux/arm64,linux/arm/v7
 
 build-base:
 	docker build -f Dockerfile --build-arg BUILD_COUNTRY=$(BUILD_COUNTRY) -t $(BASE):$(BASE_VER) -t $(BASE):latest .
