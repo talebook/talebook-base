@@ -1,0 +1,24 @@
+{
+  "checkpoint_id": "0db42c2e0d08",
+  "strategy": "manual-commit",
+  "branch": "slim-v8.5.0",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/build-base.yml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0d/b42c2e0d08/0/metadata.json",
+      "prompt": "/0d/b42c2e0d08/0/prompt.txt",
+      "transcript": "/0d/b42c2e0d08/0/full.jsonl",
+      "content_hash": "/0d/b42c2e0d08/0/content_hash.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 373766,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 34448640,
+    "output_tokens": 44326,
+    "api_call_count": 252
+  }
+}
