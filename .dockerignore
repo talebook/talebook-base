@@ -1,0 +1,13 @@
+*
+!Dockerfile.base
+!setup.py
+!pyproject.toml
+!setup/
+!setup/**
+!src/
+!src/**
+!resources/
+!resources/**
+!packaging/
+!packaging/**
+src/calibre/plugins/*.so

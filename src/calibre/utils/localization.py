@@ -56,7 +56,7 @@ def get_system_locale():
                 lang = None
         except:
             pass  # Windows XP does not have the GetUserDefaultLocaleName fn
-    elif ismacos:
+    elif ismacos and not os.environ.get('CALIBRE_STANDALONE_CONVERTER'):
         from calibre_extensions.usbobserver import user_locale
         try:
             lang = user_locale() or None

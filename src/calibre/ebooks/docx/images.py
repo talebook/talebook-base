@@ -13,7 +13,7 @@ from calibre import sanitize_file_name
 from calibre.constants import iswindows
 from calibre.ebooks.docx.names import SVG_BLIP_URI, barename
 from calibre.utils.filenames import ascii_filename
-from calibre.utils.img import image_to_data, resize_to_fit
+from calibre.utils.img_shim import image_to_data, resize_to_fit
 from calibre.utils.imghdr import what
 from polyglot.builtins import iteritems, itervalues
 

@@ -48,6 +48,39 @@ Now you can build the calibre Linux tarballs with::
 
 The output will be in :file:`dist`
 
+To build a standalone Linux package that exposes only the ``ebook-convert``
+binary for EPUB, MOBI, PDF and TXT conversions, run::
+
+    ./setup.py linux_ebook_convert
+
+To build only one architecture, run::
+
+    ./setup.py linux_ebook_convert64
+
+    ./setup.py linux_ebook_convertarm64
+
+The output tarball is named
+``calibre-ebook-convert-<version>-<arch>.txz`` and is written to
+:file:`dist`.
+
+Verify the archive package surface with::
+
+    python3 setup/standalone_ebook_convert_smoke.py --archive dist/calibre-ebook-convert-<version>-<arch>.txz
+
+Verify the standalone validation helpers without building a package with::
+
+    python3 setup/standalone_ebook_convert_smoke.py --self-test
+
+After extracting the tarball on Linux, verify the extracted package surface and
+supported conversion matrix with::
+
+    python3 setup/standalone_ebook_convert_smoke.py --forbid-qt-imports /path/to/extracted/ebook-convert
+
+These standalone smoke checks reject Qt/PyQt/``libQt`` artifacts, Qt dynamic
+dependencies, calibre GUI/server/device/scraper code surfaces, extra calibre
+commands, unsafe archives, unsupported DOCX/recipe conversion, and failures in
+the EPUB/MOBI/PDF/TXT conversion matrix.
+
 
 macOS
 --------------
@@ -64,6 +97,48 @@ Now you can build the calibre ``.dmg`` with::
     ./setup.py osx --dont-sign --dont-notarize
 
 The output will be in :file:`dist`
+
+To build a standalone macOS package that exposes only the ``ebook-convert``
+binary for EPUB, MOBI, PDF and TXT conversions, run::
+
+    ./setup.py osx_ebook_convert --dont-sign --dont-notarize
+
+This command requires Python 3.14 or newer, a bypy checkout pointed to by
+``BYPY_LOCATION`` when bypy is not checked out next to calibre, and the macOS
+bypy VM files under :file:`bypy/b/macos/vm` in the calibre checkout. The VM
+directory must contain the :file:`machine-spec` file described in bypy's
+:file:`virtual_machine/README.rst` and :file:`virtual_machine/README-macos.rst`.
+
+The output ``.dmg`` is named ``calibre-ebook-convert-<version>.dmg`` and is
+written to :file:`dist`.
+
+Verify the standalone validation helpers without building a package with::
+
+    python3 setup/standalone_ebook_convert_smoke.py --self-test
+
+After mounting the ``.dmg`` on macOS, verify the app package surface and
+supported conversion matrix with::
+
+    python3 setup/standalone_ebook_convert_smoke.py --package-root /Volumes/calibre-ebook-convert-<version>/ebook-convert.app
+    python3 setup/standalone_ebook_convert_smoke.py /Volumes/calibre-ebook-convert-<version>/ebook-convert.app/Contents/MacOS/ebook-convert
+
+For local macOS development without the bypy VM, an already-built checkout can
+be packed into a no-Qt standalone directory with::
+
+    python3 setup/build_standalone_ebook_convert_local.py --output /private/tmp/calibre-ebook-convert-noqt-macos
+
+This developer packager produces a self-contained directory and a matching
+``.tar.xz`` archive. It requires a Python 3.14 framework build, the Python
+packages used by the conversion pipeline in the ``--venv`` environment, the
+native calibre plugins already built under :file:`src/calibre/plugins`, and the
+Poppler command line helpers ``pdftohtml``, ``pdfinfo``, ``pdftoppm`` and
+``pdftotext`` on ``PATH``. It intentionally excludes Qt/PyQt, GUI commands,
+recipes, device integration and non-EPUB/MOBI/PDF/TXT conversion plugins.
+
+Verify the local package with::
+
+    python3 setup/standalone_ebook_convert_smoke.py --archive /private/tmp/calibre-ebook-convert-noqt-macos.tar.xz --max-archive-mb 30
+    python3 setup/standalone_ebook_convert_smoke.py --forbid-qt-imports --max-package-mb 150 /private/tmp/calibre-ebook-convert-noqt-macos/ebook-convert
 
 
 Windows

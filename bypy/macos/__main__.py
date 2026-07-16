@@ -32,6 +32,27 @@ QT_DLLS, QT_PLUGINS, PYQT_MODULES = iv['QT_DLLS'], iv['QT_PLUGINS'], iv['PYQT_MO
 QT_MAJOR = iv['QT_MAJOR']
 py_ver = '.'.join(map(str, python_major_minor_version()))
 sign_app = runpy.run_path(join(dirname(abspath(__file__)), 'sign.py'))['sign_app']
+def _load_standalone_common():
+    import importlib.util
+    path = join(dirname(dirname(abspath(__file__))), 'standalone_common.py')
+    spec = importlib.util.spec_from_file_location('bypy_standalone_common', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+standalone_common = _load_standalone_common()
+STANDALONE_NO_QT_PACKAGES = standalone_common.STANDALONE_NO_QT_PACKAGES
+STANDALONE_CALIBRE_DROP_DIRS = standalone_common.STANDALONE_CALIBRE_DROP_DIRS
+STANDALONE_QT_NAMED_PYTHON_FILES = standalone_common.STANDALONE_QT_NAMED_PYTHON_FILES
+prune_standalone_resources = standalone_common.prune_standalone_resources
+filter_standalone_calibre_extensions = standalone_common.filter_standalone_calibre_extensions
+IS_STANDALONE = standalone_common.is_standalone_build()
+STANDALONE_CJK_FONT_CANDIDATES = (
+    '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+    '/System/Library/Fonts/STHeiti Light.ttc',
+    '/System/Library/Fonts/STHeiti Medium.ttc',
+)
 
 QT_PREFIX = join(PREFIX, 'qt')
 QT_FRAMEWORKS = [x.replace(f'{QT_MAJOR}', '') for x in QT_DLLS]
@@ -43,11 +64,18 @@ ENV = dict(
     OPENSSL_ENGINES='@executable_path/../Frameworks/engines-3',
     OPENSSL_MODULES='@executable_path/../Frameworks/ossl-modules',
 )
+if IS_STANDALONE:
+    ENV['CALIBRE_STANDALONE_CONVERTER'] = '1'
 APPNAME, VERSION = calibre_constants['appname'], calibre_constants['version']
 basenames, main_modules, main_functions = calibre_constants['basenames'], calibre_constants['modules'], calibre_constants['functions']
 ARCH_FLAGS = '-arch x86_64 -arch arm64'.split()
 EXPECTED_ARCHES = {'x86_64', 'arm64'}
 MINIMUM_SYSTEM_VERSION = '13.3.0'
+STANDALONE_APPNAME = 'ebook-convert'
+
+
+def app_bundle_name():
+    return STANDALONE_APPNAME if IS_STANDALONE else APPNAME
 
 
 def compile_launcher_lib(contents_dir, base, pyver, inc_dir):
@@ -152,6 +180,26 @@ def strip_files(files, argv_max=(256 * 1024)):
             flipwritable(*args)
 
 
+def validate_standalone_app_surface(contents_dir):
+    standalone_common.validate_no_qt_artifacts(contents_dir, what='app')
+    exe_dir = join(contents_dir, 'MacOS')
+    found = set(os.listdir(exe_dir))
+    forbidden = set(calibre_constants['basenames']['console']) | set(calibre_constants['basenames']['gui']) | {'calibre_postinstall'}
+    forbidden.discard('ebook-convert')
+    extra_commands = found.intersection(forbidden)
+    if extra_commands:
+        raise SystemExit(f'Unexpected calibre commands in standalone app: {sorted(extra_commands)}')
+    path = join(exe_dir, 'ebook-convert')
+    if not os.path.isfile(path) or not os.access(path, os.X_OK):
+        raise SystemExit(f'Missing standalone executable: {path}')
+
+
+def copy_standalone_cjk_font(resources):
+    standalone_common.copy_standalone_cjk_font(
+        resources, STANDALONE_CJK_FONT_CANDIDATES,
+        'Set CALIBRE_STANDALONE_CJK_FONT to a CJK TrueType/TTC font.')
+
+
 def flush(func):
     def ff(*args, **kwargs):
         sys.stdout.flush()
@@ -199,7 +247,8 @@ class Freeze:
             self.add_python_framework()
             self.add_site_packages()
             self.add_stdlib()
-            self.add_qt_frameworks()
+            if not IS_STANDALONE:
+                self.add_qt_frameworks()
             self.add_calibre_plugins()
             self.add_podofo()
             self.add_poppler()
@@ -214,22 +263,33 @@ class Freeze:
         self.create_exe()
         if not test_launchers and not self.dont_strip:
             self.strip_files()
-        if not test_launchers:
+        if not test_launchers and not IS_STANDALONE:
             self.create_gui_apps()
 
         self.run_tests()
-        ret = self.makedmg(self.build_dir, APPNAME + '-' + VERSION)
+        volname = APPNAME + ('-ebook-convert' if IS_STANDALONE else '') + '-' + VERSION
+        ret = self.makedmg(self.build_dir, volname)
 
         return ret
 
     @flush
     def run_tests(self):
-        self.test_runner(join(self.contents_dir, 'MacOS', 'calibre-debug'), self.contents_dir)
+        print('Running tests...', flush=True)
+        if IS_STANDALONE:
+            validate_standalone_app_surface(self.contents_dir)
+            subprocess.check_call([
+                sys.executable, join(CALIBRE_DIR, 'setup', 'standalone_ebook_convert_smoke.py'),
+                '--forbid-qt-imports', join(self.contents_dir, 'MacOS', 'ebook-convert')
+            ])
+        else:
+            self.test_runner(join(self.contents_dir, 'MacOS', 'calibre-debug'), self.contents_dir)
 
     @flush
     def add_resources(self):
-        shutil.copytree('resources', join(self.resources_dir,
-                                                  'resources'))
+        resources = join(self.resources_dir, 'resources')
+        shutil.copytree('resources', resources)
+        prune_standalone_resources(resources)
+        copy_standalone_cjk_font(resources)
 
     @flush
     def strip_files(self):
@@ -240,9 +300,12 @@ class Freeze:
     def create_exe(self):
         print('\nCreating launchers')
         programs = {}
-        progs = []
-        for x in ('console', 'gui'):
-            progs += list(zip(basenames[x], main_modules[x], main_functions[x], repeat(x)))
+        if IS_STANDALONE:
+            progs = [('ebook-convert', 'calibre.ebooks.conversion.standalone_binary', 'main', 'console')]
+        else:
+            progs = []
+            for x in ('console', 'gui'):
+                progs += list(zip(basenames[x], main_modules[x], main_functions[x], repeat(x)))
         for program, module, func, ptype in progs:
             programs[program] = (module, func, ptype)
         programs = compile_launchers(self.contents_dir, self.inc_dir, programs, py_ver)
@@ -415,6 +478,7 @@ class Freeze:
         os.mkdir(dest)
         print('Extracting extension modules from:', self.ext_dir, 'to', dest)
         self.ext_map = extract_extension_modules(self.ext_dir, dest)
+        self.ext_map = filter_standalone_calibre_extensions(dest, self.ext_map)
         plugins = glob.glob(dest + '/*.so')
         if not plugins:
             raise SystemExit('No calibre plugins found in: ' + self.ext_dir)
@@ -463,6 +527,16 @@ class Freeze:
             LSApplicationCategoryType='public.app-category.productivity',
             LSEnvironment=env
         )
+        if IS_STANDALONE:
+            pl.update(
+                CFBundleDisplayName=STANDALONE_APPNAME,
+                CFBundleName=STANDALONE_APPNAME,
+                CFBundleIdentifier='net.kovidgoyal.calibre.ebook-convert',
+                CFBundleExecutable=STANDALONE_APPNAME,
+                CFBundleGetInfoString='ebook-convert, a standalone command line e-book converter.',
+            )
+            pl.pop('CFBundleDocumentTypes', None)
+            pl.pop('CFBundleURLTypes', None)
         with open(join(self.contents_dir, 'Info.plist'), 'wb') as p:
             plistlib.dump(pl, p)
 
@@ -496,6 +570,8 @@ class Freeze:
         print('\nAdding libjpeg, libpng, libwebp, optipng and mozjpeg')
         for x in ('jpeg.8', 'png16.16', 'webp.7', 'webpmux.3', 'webpdemux.2', 'sharpyuv.0'):
             self.install_dylib(join(PREFIX, 'lib', 'lib%s.dylib' % x))
+        if IS_STANDALONE:
+            return
         for x in 'optipng', 'JxrDecApp', 'cwebp':
             self.install_dylib(join(PREFIX, 'bin', x), set_id=False, dest=self.helpers_dir)
         for x in ('jpegtran', 'cjpeg'):
@@ -537,13 +613,21 @@ class Freeze:
             self.set_id(dest, self.FID + '/' + x)
             self.fix_dependencies_in_lib(dest)
 
-        for x in (
+        libs = (
             'usb-1.0.0', 'mtp.9', 'chm.0', 'sqlite3.0', 'hunspell-1.7.0',
             'icudata.73', 'icui18n.73', 'icuio.73', 'icuuc.73', 'hyphen.0', 'uchardet.0',
             'stemmer.0', 'xslt.1', 'exslt.0', 'xml2.2', 'z.1', 'unrar', 'lzma.5',
             'brotlicommon.1', 'brotlidec.1', 'brotlienc.1', 'zstd.1', 'jbig.2.1', 'tiff.6',
             'crypto.3', 'ssl.3', 'iconv.2',  # 'ltdl.7'
-        ):
+        )
+        if IS_STANDALONE:
+            libs = (
+                'sqlite3.0', 'icudata.73', 'icui18n.73', 'icuio.73', 'icuuc.73',
+                'hyphen.0', 'uchardet.0', 'xslt.1', 'exslt.0', 'xml2.2', 'z.1',
+                'lzma.5', 'brotlicommon.1', 'brotlidec.1', 'brotlienc.1',
+                'zstd.1', 'jbig.2.1', 'tiff.6', 'crypto.3', 'ssl.3', 'iconv.2',
+            )
+        for x in libs:
             x = 'lib%s.dylib' % x
             src = join(PREFIX, 'lib', x)
             add_lib(src)
@@ -557,8 +641,9 @@ class Freeze:
                     dylib = join(dest, dylib)
                     self.set_id(dylib, self.FID + '/' + x + '/' + os.path.basename(dylib))
                     self.fix_dependencies_in_lib(dylib)
-        # Piper TTS
-        copy_piper_dir(PREFIX, self.frameworks_dir)
+        if not IS_STANDALONE:
+            # Piper TTS
+            copy_piper_dir(PREFIX, self.frameworks_dir)
 
     @flush
     def add_site_packages(self):
@@ -624,6 +709,12 @@ class Freeze:
                 ext = os.path.splitext(y)[1]
                 if ext not in allowed_exts or (not ext and not os.path.isdir(join(root, y))):
                     ans.append(y)
+            if IS_STANDALONE:
+                if basename(root) == 'calibre':
+                    ans.extend(y for y in files if y in STANDALONE_CALIBRE_DROP_DIRS)
+                for package, filename in STANDALONE_QT_NAMED_PYTHON_FILES:
+                    if basename(root) == package and filename in files:
+                        ans.append(filename)
 
             return ans
         if dest is None:
@@ -639,6 +730,8 @@ class Freeze:
 
     @flush
     def filter_package(self, name):
+        if IS_STANDALONE and name in STANDALONE_NO_QT_PACKAGES:
+            return True
         return name in ('Cython', 'modulegraph', 'macholib', 'py2app',
                         'bdist_mpkg', 'altgraph')
 
@@ -839,7 +932,7 @@ class Freeze:
 
 
 def main(args, ext_dir, test_runner):
-    build_dir = abspath(join(mkdtemp('frozen-'), APPNAME + '.app'))
+    build_dir = abspath(join(mkdtemp('frozen-'), app_bundle_name() + '.app'))
     inc_dir = abspath(mkdtemp('include'))
     if args.skip_tests:
         def test_runner(*a):

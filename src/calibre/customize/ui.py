@@ -25,11 +25,21 @@ from calibre.customize import (
 )
 from calibre.customize import InterfaceActionBase as InterfaceAction
 from calibre.customize import StoreBase as Store
-from calibre.customize.builtins import plugins as builtin_plugins
+if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
+    from calibre.customize.standalone_builtins import plugins as builtin_plugins
+else:
+    from calibre.customize.builtins import plugins as builtin_plugins
 from calibre.customize.conversion import InputFormatPlugin, OutputFormatPlugin
 from calibre.customize.profiles import InputProfile, OutputProfile
 from calibre.customize.zipplugin import loader
-from calibre.devices.interface import DevicePlugin
+if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
+    # Placeholder for the standalone converter, which ships no device
+    # drivers: isinstance(x, DevicePlugin) must stay valid and always be
+    # False. Do not remove as dead code.
+    class DevicePlugin:
+        pass
+else:
+    from calibre.devices.interface import DevicePlugin
 from calibre.ebooks.metadata import MetaInformation
 from calibre.ebooks.metadata.sources.base import Source
 from calibre.utils.config import Config, ConfigProxy, OptionParser, make_config_dir, plugin_dir

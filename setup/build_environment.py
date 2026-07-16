@@ -126,10 +126,15 @@ podofo_inc = '/usr/include/podofo'
 podofo_lib = '/usr/lib'
 
 usb_library = 'usb' if isfreebsd else 'usb-1.0'
+usb_inc_dirs = []
+usb_lib_dirs = []
+mtp_inc_dirs = []
+mtp_lib_dirs = []
 
 chmlib_inc_dirs = chmlib_lib_dirs = []
 
 sqlite_inc_dirs = []
+sqlite_lib_dirs = []
 
 icu_inc_dirs = []
 icu_lib_dirs = []
@@ -215,10 +220,25 @@ else:
         for lib in pkgconfig_lib_dirs(x, '', '/usr/lib'):
             if lib and lib not in ffmpeg_lib_dirs:
                 ffmpeg_lib_dirs.append(lib)
-
 if os.path.exists(os.path.join(sw, 'ffmpeg')):
     ffmpeg_inc_dirs = [os.path.join(sw, 'ffmpeg', 'include')] + ffmpeg_inc_dirs
     ffmpeg_lib_dirs = [os.path.join(sw, 'ffmpeg', 'bin' if iswindows else 'lib')] + ffmpeg_lib_dirs
+ffmpeg_inc_dirs = consolidate('FFMPEG_INC_DIR', os.pathsep.join(ffmpeg_inc_dirs))
+ffmpeg_lib_dirs = consolidate('FFMPEG_LIB_DIR', os.pathsep.join(ffmpeg_lib_dirs))
+icu_inc_dirs = consolidate('ICU_INC_DIR', os.pathsep.join(icu_inc_dirs))
+icu_lib_dirs = consolidate('ICU_LIB_DIR', os.pathsep.join(icu_lib_dirs))
+sqlite_inc_dirs = consolidate('SQLITE_INC_DIR', os.pathsep.join(sqlite_inc_dirs))
+sqlite_lib_dirs = consolidate('SQLITE_LIB_DIR', os.pathsep.join(sqlite_lib_dirs))
+usb_inc_dirs = consolidate('USB_INC_DIR', os.pathsep.join(usb_inc_dirs))
+usb_lib_dirs = consolidate('USB_LIB_DIR', os.pathsep.join(usb_lib_dirs))
+mtp_inc_dirs = consolidate('MTP_INC_DIR', os.pathsep.join(mtp_inc_dirs))
+mtp_lib_dirs = consolidate('MTP_LIB_DIR', os.pathsep.join(mtp_lib_dirs))
+hunspell_inc_dirs = consolidate('HUNSPELL_INC_DIR', os.pathsep.join(hunspell_inc_dirs))
+hunspell_lib_dirs = consolidate('HUNSPELL_LIB_DIR', os.pathsep.join(hunspell_lib_dirs))
+uchardet_inc_dirs = consolidate('UCHARDET_INC_DIR', os.pathsep.join(uchardet_inc_dirs))
+uchardet_lib_dirs = consolidate('UCHARDET_LIB_DIR', os.pathsep.join(uchardet_lib_dirs))
+freetype_inc_dirs = consolidate('FT_INC_DIR', os.pathsep.join(freetype_inc_dirs))
+freetype_lib_dirs = consolidate('FT_LIB_DIR', os.pathsep.join(freetype_lib_dirs))
 
 
 if 'PODOFO_PREFIX' in os.environ:
@@ -228,6 +248,9 @@ if 'PODOFO_PREFIX' in os.environ:
 podofo_lib = os.environ.get('PODOFO_LIB_DIR', podofo_lib)
 podofo_inc = os.environ.get('PODOFO_INC_DIR', podofo_inc)
 podofo = os.environ.get('PODOFO_LIB_NAME', 'podofo')
+hyphen_inc_dirs = consolidate('HYPHEN_INC_DIR', os.pathsep.join(hyphen_inc_dirs))
+hyphen_lib_dirs = consolidate('HYPHEN_LIB_DIR', os.pathsep.join(hyphen_lib_dirs))
+hyphen_lib = os.environ.get('HYPHEN_LIB_NAME', 'hyphen')
 
 podofo_error = None if os.path.exists(os.path.join(podofo_inc, 'podofo.h')) else \
         ('PoDoFo not found on your system. Various PDF related',

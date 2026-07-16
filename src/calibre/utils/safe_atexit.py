@@ -19,6 +19,7 @@ lock = RLock()
 worker = None
 RMTREE_ACTION = 'rmtree'
 UNLINK_ACTION = 'unlink'
+is_standalone_converter = os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1'
 
 
 def thread_safe(f):
@@ -32,11 +33,17 @@ def thread_safe(f):
 
 @thread_safe
 def remove_folder_atexit(path: str) -> None:
+    if is_standalone_converter:
+        atexit.register(remove_dir, os.path.abspath(path))
+        return
     _send_command(RMTREE_ACTION, os.path.abspath(path))
 
 
 @thread_safe
 def remove_file_atexit(path: str) -> None:
+    if is_standalone_converter:
+        atexit.register(unlink, os.path.abspath(path))
+        return
     _send_command(UNLINK_ACTION, os.path.abspath(path))
 
 

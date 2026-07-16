@@ -5,6 +5,8 @@ __license__   = 'GPL v3'
 __copyright__ = '2009, Kovid Goyal <kovid@kovidgoyal.net>'
 __docformat__ = 'restructuredtext en'
 
+import os
+
 from calibre.customize.conversion import OptionRecommendation, OutputFormatPlugin
 
 
@@ -223,7 +225,15 @@ class MOBIOutput(OutputFormatPlugin):
         from calibre.ebooks.mobi.mobiml import MobiMLizer
         from calibre.ebooks.oeb.transforms.htmltoc import HTMLTOCAdder
         from calibre.ebooks.oeb.transforms.manglecase import CaseMangler
-        from calibre.ebooks.oeb.transforms.rasterize import SVGRasterizer, Unavailable
+        if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
+            class Unavailable(Exception):
+                pass
+
+            class SVGRasterizer:
+                def __init__(self):
+                    raise Unavailable()
+        else:
+            from calibre.ebooks.oeb.transforms.rasterize import SVGRasterizer, Unavailable
 
         opts, oeb = self.opts, self.oeb
         if not opts.no_inline_toc:

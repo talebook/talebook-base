@@ -1,0 +1,182 @@
+# syntax=docker/dockerfile:1.6
+
+# ----------------------------------------
+# talebook 精简基础镜像
+#
+# 不再把完整 calibre / PyQt / Qt runtime 带进最终镜像。构建阶段使用 Debian
+# calibre 包作为已验证的运行时输入，现场裁剪出「精简版 calibre runtime」：
+# 单个共享 runtime + ebook-convert / calibredb 入口；PDF 由 ebook-convert 内部分流。
+#
+# 主 Dockerfile 通过 FROM 引用本镜像，避免每次构建重复解压 runtime / 编译扩展。
+# 构建/发布见 Makefile 的 build-base / push-base 与 .github/workflows/build-base.yml。
+# ----------------------------------------
+
+# ----------------------------------------
+# 第一阶段只下载 Debian 包，不执行 dpkg/apt 安装。完整依赖闭包仅作为取材池，
+# Qt/PyQt 包不会被解压。
+FROM debian:13-slim AS deb-packages
+ARG BUILD_COUNTRY=""
+ARG CALIBRE_UPSTREAM_VERSION="8.5.0"
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN mkdir -p /var/lib/apt/lists/partial && \
+    chmod -R 0755 /var/lib/apt/lists/ && \
+    if [ "x${BUILD_COUNTRY}" = "xCN" ]; then \
+        echo "using repo mirrors for ${BUILD_COUNTRY}"; \
+        sed -i "s@deb.debian.org@mirrors.aliyun.com@g" /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+RUN apt-get update && \
+    apt-get install -y --download-only --no-install-recommends \
+        binutils \
+        ca-certificates \
+        calibre \
+        fonts-wqy-microhei \
+        gettext \
+        python3 \
+        python3-pyphen \
+        poppler-utils \
+        tar \
+        weasyprint
+
+# 分支名与 Calibre API 基线必须一致。Debian 安全修订（如 +deb13u3）可以更新，
+# 但上游版本变化时让构建立即失败，转到新的 slim-vX.Y.Z 分支处理兼容性。
+RUN calibre_deb="$(find /var/cache/apt/archives -maxdepth 1 -type f -name 'calibre_*.deb' -print -quit)" && \
+    test -n "$calibre_deb" && \
+    calibre_debian_version="$(dpkg-deb --field "$calibre_deb" Version)" && \
+    case "$calibre_debian_version" in \
+        "${CALIBRE_UPSTREAM_VERSION}"*) ;; \
+        *) echo "Expected Debian Calibre ${CALIBRE_UPSTREAM_VERSION}.x, found ${calibre_debian_version}" >&2; exit 1 ;; \
+    esac && \
+    printf '%s\n' "$calibre_debian_version" > /tmp/talebook-calibre-debian-version
+
+COPY --chmod=0755 packaging/extract-debian-packages.sh /usr/local/bin/extract-debian-packages
+RUN /usr/local/bin/extract-debian-packages /var/cache/apt/archives /opt/debian-root && \
+    install -Dm0644 /tmp/talebook-calibre-debian-version \
+        /opt/debian-root/usr/share/calibre/talebook-debian-package-version
+
+
+# 最终系统层只安装运行依赖。编译器和 Python headers 放在独立 wheel builder，
+# 不进入发布镜像。
+FROM debian:13-slim AS runtime-system
+ARG BUILD_COUNTRY=""
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV CALIBRE_STANDALONE_CONVERTER=1
+ENV CALIBRE_STANDALONE_FORBID_QT=1
+ENV TALEBOOK_CALIBRE_RUNTIME=/usr/lib/calibre
+ENV TALEBOOK_CALIBRE_RESOURCES=/usr/share/calibre
+ENV TALEBOOK_CALIBRE_PLUGINS=/usr/lib/calibre/calibre/plugins
+ENV TALEBOOK_CALIBRE_BIN=/usr/lib/talebook-calibre/bin
+ENV TALEBOOK_CALIBRE_LIB=/usr/lib/talebook-calibre/lib
+ENV PYTHONPATH=/usr/lib/calibre
+ENV LD_LIBRARY_PATH=/usr/lib/talebook-calibre/lib
+ENV PATH=/usr/lib/talebook-calibre/bin:${PATH}
+ENV FONTCONFIG_PATH=/etc/talebook-calibre/fonts
+ENV FONTCONFIG_FILE=/etc/talebook-calibre/fonts/fonts.conf
+
+RUN mkdir -p /var/lib/apt/lists/partial && \
+    chmod -R 0755 /var/lib/apt/lists/ && \
+    if [ "x${BUILD_COUNTRY}" = "xCN" ]; then \
+        echo "using repo mirrors for ${BUILD_COUNTRY}"; \
+        sed -i "s@deb.debian.org@mirrors.aliyun.com@g" /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gettext \
+        gosu \
+        libstemmer0d \
+        nginx \
+        procps \
+        python3 \
+        python3-apsw \
+        python3-pip \
+        python3-setuptools \
+        python3-xxhash \
+        sqlite3 \
+        supervisor \
+        tzdata && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+
+# Talebook 当前 requirements 中 quickjs 没有可依赖的通用预编译 wheel。只在此阶段
+# 安装工具链并构建 wheel；最终层预装 wheel 后，上层原有 pip install -r 会直接复用。
+FROM runtime-system AS python-wheel-build
+ARG QUICKJS_VERSION="1.19.4"
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        python3-dev \
+        python3-wheel && \
+    python3 -m pip wheel \
+        --no-cache-dir \
+        --no-build-isolation \
+        --no-deps \
+        --wheel-dir /opt/wheels \
+        "quickjs==${QUICKJS_VERSION}"
+
+
+# 运行时组装阶段把解包树作为临时 Debian root，执行白名单裁剪、源码覆盖、ELF 依赖闭包
+# 收集和无 Qt 校验。输出使用最终系统路径，不携带私有 Python。
+FROM debian:13-slim AS runtime-build
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CALIBRE_STANDALONE_CODE_ROOT=/usr/lib/calibre
+ENV CALIBRE_STANDALONE_RESOURCE_ROOT=/usr/share/calibre
+ENV CALIBRE_STANDALONE_PLUGIN_ROOT=/usr/lib/calibre/calibre/plugins
+ENV CALIBRE_STANDALONE_PYTHON_PACKAGE_ROOTS=/usr/lib/python3/dist-packages
+
+COPY --from=deb-packages /opt/debian-root/ /
+# 用最终系统层作为去重参照；这里只进入中间构建层。
+COPY --from=runtime-system /usr/lib/ /opt/final-system/usr/lib/
+RUN ldconfig
+
+WORKDIR /src/calibre
+COPY setup/ setup/
+COPY src/ src/
+COPY resources/ resources/
+COPY --chmod=0755 packaging/build-system-runtime-from-debian.sh packaging/build-system-runtime-from-debian.sh
+
+RUN packaging/build-system-runtime-from-debian.sh /opt/talebook-system-root /opt/final-system && \
+    rm -rf /src/calibre
+
+
+# ----------------------------------------
+# 最终基础镜像复用只含运行依赖的 Debian 系统层。
+FROM runtime-system AS base
+ARG TARGETARCH
+ARG TARGETVARIANT
+
+COPY --from=runtime-build /opt/talebook-system-root/ /
+COPY --chmod=0755 packaging/entrypoints/ebook-convert packaging/entrypoints/calibredb /usr/bin/
+COPY --chmod=0644 packaging/entrypoints/*.py /usr/lib/calibre/
+
+RUN --mount=from=python-wheel-build,source=/opt/wheels,target=/tmp/talebook-wheels,ro \
+    python3 -m pip install \
+        --no-cache-dir \
+        --no-index \
+        /tmp/talebook-wheels/quickjs-*.whl && \
+    python3 -c "import apsw, quickjs, xxhash; assert apsw and quickjs and xxhash" && \
+    python3 -m pip --version && \
+    test ! -e /usr/lib/talebook-calibre-runtime && \
+    test -f /usr/lib/calibre/calibre/__init__.py && \
+    test -x /usr/lib/talebook-calibre/bin/pdftotext && \
+    if find /usr/lib/calibre /usr/lib/talebook-calibre \( -name 'PyQt6' -o -name 'qt' -o -name 'libQt*' -o -name 'Qt*' \) -print -quit | grep -q .; then \
+        echo "runtime contains Qt artifacts" >&2; \
+        exit 1; \
+    fi
+
+# Create a talebook user and change the Nginx startup user if it doesn't exist
+RUN if ! id -u talebook > /dev/null 2>&1; then \
+    useradd -u 911 -U -d /var/www/talebook -s /bin/false talebook && \
+    usermod -G users talebook && \
+    groupmod -g 911 talebook; \
+fi && \
+    sed -i "s/user www-data;/user talebook;/g" /etc/nginx/nginx.conf
+
+CMD ["/bin/bash"]

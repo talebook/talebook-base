@@ -11,7 +11,7 @@
     {
         "name": "hyphen",
         "sources": "calibre/utils/hyphenation/hyphen.c",
-		"libraries": "hyphen",
+        "libraries": "!hyphen_lib",
         "inc_dirs": "!hyphen_inc_dirs",
         "lib_dirs": "!hyphen_lib_dirs",
 		"needs_c": "99"
@@ -93,7 +93,7 @@
 		"needs_c++": "17",
         "libraries": "icudata icui18n icuuc icuio stemmer",
         "windows_libraries": "icudt icuin icuuc icuio libstemmer",
-        "lib_dirs": "!icu_lib_dirs",
+        "lib_dirs": "!icu_lib_dirs !sqlite_lib_dirs",
         "inc_dirs": "!icu_inc_dirs !sqlite_inc_dirs"
     },
     {
@@ -230,13 +230,17 @@
         "name": "libusb",
         "only": "macos linux haiku freebsd",
         "sources": "calibre/devices/libusb/libusb.c",
-        "libraries": "!usb_library"
+        "libraries": "!usb_library",
+        "inc_dirs": "!usb_inc_dirs",
+        "lib_dirs": "!usb_lib_dirs"
     },
     {
         "name": "libmtp",
         "only": "freebsd macos linux haiku",
         "sources": "calibre/devices/mtp/unix/devices.c calibre/devices/mtp/unix/libmtp.c",
         "headers": "calibre/devices/mtp/unix/devices.h calibre/devices/mtp/unix/upstream/music-players.h calibre/devices/mtp/unix/upstream/device-flags.h",
-        "libraries": "mtp"
+        "libraries": "mtp",
+        "inc_dirs": "!mtp_inc_dirs",
+        "lib_dirs": "!mtp_lib_dirs"
     }
 ]

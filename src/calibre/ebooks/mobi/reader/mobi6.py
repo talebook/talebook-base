@@ -25,7 +25,7 @@ from calibre.ebooks.mobi import MobiError
 from calibre.ebooks.mobi.huffcdic import HuffReader
 from calibre.ebooks.mobi.reader.headers import BookHeader
 from calibre.utils.cleantext import clean_ascii_chars, clean_xml_chars
-from calibre.utils.img import AnimatedGIF, gif_data_to_png_data, save_cover_data_to
+from calibre.utils.img_shim import AnimatedGIF, gif_data_to_png_data, save_cover_data_to
 from calibre.utils.imghdr import what
 from calibre.utils.logging import default_log
 from polyglot.builtins import iteritems

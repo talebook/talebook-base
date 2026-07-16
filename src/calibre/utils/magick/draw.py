@@ -77,6 +77,13 @@ def save_cover_data_to(data, path, bgcolor='#ffffff', resize_to=None,
 
 def thumbnail(data, width=120, height=120, bgcolor='#ffffff', fmt='jpg',
               preserve_aspect_ratio=True, compression_quality=70):
+    if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
+        from calibre.utils.standalone_img import thumbnail as standalone_thumbnail
+        return standalone_thumbnail(
+            data, width=width, height=height, bgcolor=bgcolor, fmt=fmt,
+            preserve_aspect_ratio=preserve_aspect_ratio,
+            compression_quality=compression_quality,
+        )
     img = Image()
     img.load(data)
     owidth, oheight = img.size
