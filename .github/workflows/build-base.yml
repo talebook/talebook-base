@@ -14,6 +14,7 @@ on:
       - src/**
   push:
     branches:
+      - master
       - slim-v8.5.0
     paths:
       - .dockerignore
