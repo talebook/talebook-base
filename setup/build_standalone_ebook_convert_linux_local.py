@@ -238,6 +238,7 @@ def copy_calibre_from_debian(package):
         shutil.copy2(src, dest)
     patch_debian_ui(site_packages / 'calibre' / 'customize' / 'ui.py')
     patch_debian_img(site_packages / 'calibre' / 'utils' / 'img.py')
+    patch_debian_magick_draw(site_packages / 'calibre' / 'utils' / 'magick' / 'draw.py')
     patch_debian_mobi_files(site_packages)
     write_talebook_runtime_overlays(site_packages)
 
@@ -337,6 +338,28 @@ def patch_debian_img(path):
     )
     raw += STANDALONE_IMG_OVERRIDE
     path.write_text(raw, encoding='utf-8')
+
+
+def patch_debian_magick_draw(path):
+    raw = path.read_text(encoding='utf-8')
+    needle = '''def thumbnail(data, width=120, height=120, bgcolor='#ffffff', fmt='jpg',
+              preserve_aspect_ratio=True, compression_quality=70):
+    img = Image()
+'''
+    replacement = '''def thumbnail(data, width=120, height=120, bgcolor='#ffffff', fmt='jpg',
+              preserve_aspect_ratio=True, compression_quality=70):
+    if os.environ.get('CALIBRE_STANDALONE_CONVERTER') == '1':
+        from calibre.utils.standalone_img import thumbnail as standalone_thumbnail
+        return standalone_thumbnail(
+            data, width=width, height=height, bgcolor=bgcolor, fmt=fmt,
+            preserve_aspect_ratio=preserve_aspect_ratio,
+            compression_quality=compression_quality,
+        )
+    img = Image()
+'''
+    if needle not in raw:
+        raise SystemExit(f'Cannot patch {path}: missing magick thumbnail implementation')
+    path.write_text(raw.replace(needle, replacement), encoding='utf-8')
 
 
 def patch_text(path, replacements):

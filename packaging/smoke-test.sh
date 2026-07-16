@@ -6,6 +6,7 @@ RUNTIME_ROOT="/usr/lib/talebook-calibre"
 HELPER_ROOT="${TALEBOOK_CALIBRE_BIN:-$RUNTIME_ROOT/bin}"
 FIXTURE="${1:-resources/quick_start/eng.epub}"
 MAX_USR_MIB="${TALEBOOK_MAX_USR_MIB:-400}"
+export FIXTURE
 
 test -d "$CALIBRE_ROOT"
 test -d "$RUNTIME_ROOT/lib"
@@ -75,13 +76,25 @@ done
 
 python3 - <<'PY'
 import sys
+from io import BytesIO
 
 import calibre
 import quickjs
+from PIL import Image
 from calibre import gui2
 from calibre.db.cli.main import main as calibredb_main
 from calibre.db.legacy import LibraryDatabase
 from calibre.ebooks.conversion.standalone_binary import SUPPORTED_OUTPUT_FORMATS
+from calibre.utils.img import (
+    gif_data_to_png_data,
+    image_and_format_from_data,
+    image_to_data,
+    png_data_to_gif_data,
+    resize_to_fit,
+    save_cover_data_to,
+    scale_image,
+)
+from calibre.utils.magick.draw import thumbnail
 
 assert calibre.__file__.startswith("/usr/lib/calibre/")
 assert gui2.must_use_qt() is None
@@ -92,6 +105,40 @@ assert SUPPORTED_OUTPUT_FORMATS == frozenset({"azw3", "epub", "mobi", "txt"})
 assert sys.resources_location == "/usr/share/calibre"
 assert sys.extensions_location == "/usr/lib/calibre/calibre/plugins"
 assert sys.executables_location == "/usr/lib/talebook-calibre/bin"
+
+source = BytesIO()
+Image.new("RGBA", (160, 80), (20, 80, 140, 128)).save(source, "PNG")
+source_raw = source.getvalue()
+
+wrapped, source_format = image_and_format_from_data(source_raw)
+assert source_format == "png"
+assert (wrapped.width(), wrapped.height()) == (160, 80)
+jpeg_raw = image_to_data(wrapped, fmt="JPEG", bgcolor="#ffffff")
+assert Image.open(BytesIO(jpeg_raw)).format == "JPEG"
+
+resized, resized_image = resize_to_fit(source_raw, 80, 80)
+assert resized is True
+assert (resized_image.width(), resized_image.height()) == (80, 40)
+width, height, scaled_raw = scale_image(source_raw, width=40, height=40)
+assert (width, height) == (40, 20)
+assert Image.open(BytesIO(scaled_raw)).format == "JPEG"
+
+saved_raw = save_cover_data_to(source_raw, resize_to=(32, 16), data_fmt="png")
+saved = Image.open(BytesIO(saved_raw))
+saved.load()
+assert saved.format == "PNG"
+assert saved.size == (32, 16)
+gif_raw = png_data_to_gif_data(source_raw)
+assert Image.open(BytesIO(gif_raw)).format == "GIF"
+roundtrip_png = gif_data_to_png_data(gif_raw)
+assert Image.open(BytesIO(roundtrip_png)).format == "PNG"
+
+width, height, raw = thumbnail(source_raw, width=80, height=80)
+assert (width, height) == (80, 40)
+result = Image.open(BytesIO(raw))
+result.load()
+assert result.format == "JPEG"
+assert result.size == (80, 40)
 PY
 
 calibredb --version
@@ -102,6 +149,35 @@ from calibre.db.legacy import LibraryDatabase
 LibraryDatabase("/tmp/talebook-calibre-lib")
 PY
 calibredb list --library-path /tmp/talebook-calibre-lib
+python3 - <<'PY'
+import os
+from io import BytesIO
+
+from PIL import Image
+from calibre.db.legacy import LibraryDatabase
+from calibre.ebooks.metadata.book.base import Metadata
+
+db = LibraryDatabase("/tmp/talebook-calibre-lib")
+book_id = db.import_book(Metadata("Talebook image smoke", ["Talebook"]), [os.environ["FIXTURE"]])
+assert list(db.all_ids()) == [book_id]
+
+source = BytesIO()
+Image.new("RGBA", (96, 144), (120, 30, 200, 128)).save(source, "PNG")
+source_raw = source.getvalue()
+
+db.set_cover(book_id, source_raw)
+cover = db.cover(book_id, index_is_id=True)
+saved = Image.open(BytesIO(cover))
+saved.load()
+assert saved.format == "JPEG"
+assert saved.size == (96, 144)
+
+metadata = db.get_metadata(book_id, index_is_id=True)
+metadata.cover_data = ("png", source_raw)
+db.set_metadata(book_id, metadata)
+cover = db.cover(book_id, index_is_id=True)
+assert Image.open(BytesIO(cover)).format == "JPEG"
+PY
 
 ebook-convert "$FIXTURE" /tmp/convert-test.mobi
 ebook-convert "$FIXTURE" /tmp/convert-test.azw3

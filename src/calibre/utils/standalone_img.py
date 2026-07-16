@@ -60,10 +60,11 @@ def _flatten_for_jpeg(img, bgcolor='white'):
 def image_to_data(img, compression_quality=95, fmt='JPEG', png_compression_level=9, **kwargs):
     img = _pil(img)
     fmt = fmt.upper()
+    bgcolor = kwargs.pop('bgcolor', 'white')
     if fmt == 'JPG':
         fmt = 'JPEG'
     if fmt == 'JPEG':
-        img = _flatten_for_jpeg(img)
+        img = _flatten_for_jpeg(img, bgcolor=bgcolor)
     elif fmt == 'PNG':
         img = img.convert('RGBA') if img.mode in ('RGBA', 'LA', 'P') else img
     out = BytesIO()
@@ -98,6 +99,27 @@ def scale_image(data, width=60, height=80, compression_quality=70, as_png=False,
         img = img.resize((int(width), int(height)), Image.Resampling.LANCZOS)
     fmt = 'PNG' if as_png else 'JPEG'
     return img.width, img.height, image_to_data(ImageWrapper(img), compression_quality=compression_quality, fmt=fmt)
+
+
+def thumbnail(data, width=120, height=120, bgcolor='#ffffff', fmt='jpg',
+              preserve_aspect_ratio=True, compression_quality=70):
+    from PIL import Image
+    img = _pil(image_from_data(data))
+    original_width, original_height = img.size
+    width = original_width if width is None else int(width)
+    height = original_height if height is None else int(height)
+    if preserve_aspect_ratio:
+        img.thumbnail((width, height), Image.Resampling.LANCZOS)
+    elif original_width > width or original_height > height:
+        img = img.resize((width, height), Image.Resampling.LANCZOS)
+    output_format = fmt.upper()
+    if output_format == 'JPG':
+        output_format = 'JPEG'
+    raw = image_to_data(
+        ImageWrapper(img), compression_quality=compression_quality,
+        fmt=output_format, bgcolor=bgcolor,
+    )
+    return img.width, img.height, raw
 
 
 def save_cover_data_to(data, path=None, compression_quality=90, minify_to=None, resize_to=None, data_fmt='jpeg', **kwargs):

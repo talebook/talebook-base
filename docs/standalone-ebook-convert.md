@@ -125,6 +125,12 @@ MOBI 相关改动主要为 no-Qt：
   存在于这一个文件中。
 - `standalone_img.py` 使用 Pillow 实现基础图片读取、缩放、格式转换、cover 保存、
   GIF/PNG/JPEG 处理。
+- Talebook 的封面缩略图仍调用历史接口 `calibre.utils.magick.draw.thumbnail()`。Debian
+  运行时组装器对该函数做最小补丁：standalone 模式转发到 Pillow
+  `standalone_img.thumbnail()`，完整 Calibre 模式继续使用原 Qt/ImageMagick 兼容实现。
+- 镜像 smoke 使用真实 RGBA PNG 验证图片识别、透明背景转 JPEG、等比例缩放、
+  PNG/GIF 往返和缩略图，并通过 `LibraryDatabase.import_book()` 后分别调用
+  `set_cover()`、`set_metadata()`、`cover()` 验证 Talebook 实际书库封面链路。
 
 SVG 处理的结论：
 
@@ -193,8 +199,8 @@ Linux 脚本中特别排除了 Debian 中依赖 Qt 的 native 插件，例如 `i
 `pip install -r` 会把它识别为已满足；`PIP_BREAK_SYSTEM_PACKAGES=1` 保持旧 Talebook
 镜像的安装行为。
 
-2026-07-15 的本地 arm64 基线从 740,220,119 bytes（约 706 MiB）降到
-356,152,506 bytes（约 340 MiB），减少 51.9%；`/usr` 从 701 MiB 降到 346 MiB。
+2026-07-16 的本地 arm64 基线从 740,220,119 bytes（约 706 MiB）降到
+356,153,818 bytes（约 340 MiB），减少 51.9%；`/usr` 从 701 MiB 降到 346 MiB。
 `packaging/smoke-test.sh` 与双架构 CI 将 `/usr <= 400 MiB` 作为回归门禁，并拒绝最终
 镜像出现 `build-essential`、`python3-dev`、`python3-venv` 或 `gcc`。
 
@@ -246,6 +252,23 @@ reference `ebook-convert`：
   reference `ebook-convert` 转成 TXT 后比较正文。
 - 比较正文长度比例、CJK 字符数量比例、相似度和文本 hash。
 - 同时记录双方返回码、输出大小、首条日志，便于区分 standalone 缺口和 reference 环境问题。
+
+### Talebook 图片路径审计与集成验证（2026-07-16）
+
+Talebook 对 Calibre 图片 API 的直接调用只有
+`webserver/handlers/files.py` 中的 `calibre.utils.magick.draw.thumbnail()`；原图响应直接
+读取数据库 cover。其它图片处理均为 Talebook 自身的 Pillow 路径，包括验证码、网络
+书源封面和元数据提供方。间接经过 Calibre 的路径为书籍导入、`set_cover()`、
+`set_metadata()`、格式元数据读写以及电子书转换。
+
+验收分三层完成：
+
+- `packaging/smoke-test.sh` 覆盖 Pillow shim、公共缩略图接口、数据库封面写入/读取和
+  EPUB→MOBI/AZW3/PDF 图片转换路径。
+- Talebook 原失败 seam `tests/test_main.py::TestFile::test_get_thumb` 单独通过。
+- 在新 `talebook/talebook-base:slim`（本地别名 `:8.5`）上运行 Talebook
+  `make test`，结果为 `575 passed, 1 skipped`；上传、扫描、验证码、封面代理、网络书源
+  和元数据提供方相关测试均包含在完整结果中。
 
 ## Debian 容器验证记录（历史独立包）
 

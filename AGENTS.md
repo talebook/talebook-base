@@ -52,7 +52,10 @@ resulting image. The image smoke must verify all three public commands, the
 absence of PyQt/Qt, Calibre database creation/listing, and EPUB conversion to
 MOBI, AZW3, and PDF, including CJK PDF text extraction. It must also import the
 prebuilt QuickJS module, reject missing/Qt-linked native dependencies, prove
-that no compiler toolchain remains, and keep `/usr` at or below 400 MiB.
+that no compiler toolchain remains, and keep `/usr` at or below 400 MiB. Image
+coverage must include the public `calibre.utils.magick.draw.thumbnail` API,
+PNG/JPEG/GIF Pillow-shim operations, and database cover writes through both
+`LibraryDatabase.set_cover` and `set_metadata`.
 
 When changing supported formats or PDF behavior, update the corresponding
 sample matrix and both standalone design documents. The PDF sample matrix also
@@ -81,6 +84,9 @@ contains a synthetic image-only EPUB regression case.
   API compatibility checks.
 - Preserve CJK font embedding, non-BMP Unicode extraction, PDF input through
   bundled Poppler helpers, and public PDF output through WeasyPrint.
+- Preserve Talebook's historical `calibre.utils.magick.draw.thumbnail` call.
+  In standalone mode it must route to Pillow without constructing `QImage`;
+  full Calibre mode must retain the original Qt implementation.
 
 ## Git and artifact hygiene
 
@@ -101,7 +107,7 @@ dispatch, use the repository's configured registry credentials, and build the
 requested target architectures without silently weakening the local smoke
 coverage.
 
-The arm64 reference built on 2026-07-15 is 356,152,506 bytes (about 340 MiB),
+The arm64 reference built on 2026-07-16 is 356,153,818 bytes (about 340 MiB),
 with `/usr` using 346 MiB. CI explicitly passes the 400 MiB `/usr` budget to the
 smoke test. Treat this as a regression limit, not a target to consume or relax
 without a measured explanation.

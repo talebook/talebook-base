@@ -485,7 +485,7 @@
 
       <div class="callout olive">
         <span class="callout-label">体积结果</span>
-        <p>本地 arm64 镜像从 740,220,119 bytes（约 706 MiB）降到 356,152,506 bytes（约 340 MiB），减少 51.9%；<code>/usr</code> 从 701 MiB 降到 346 MiB。主要收益来自移出约 345 MiB 的编译工具链，以及删除 45 份与系统层完全相同的动态库。</p>
+        <p>本地 arm64 镜像从 740,220,119 bytes（约 706 MiB）降到 356,153,818 bytes（约 340 MiB），减少 51.9%；<code>/usr</code> 从 701 MiB 降到 346 MiB。主要收益来自移出约 345 MiB 的编译工具链，以及删除 45 份与系统层完全相同的动态库。</p>
       </div>
 
       <pre><code># Dockerfile.base 的关键边界（概念化）
@@ -654,6 +654,7 @@ COPY --from=runtime-build /opt/talebook-system-root/ /</code></pre>
             <tr><td>GUI、设备管理、内容服务器</td><td>整个目录与插件面删除</td><td>产品范围删除；最终运行时不承诺这些能力</td></tr>
             <tr><td>全量插件自动发现</td><td><code>standalone_builtins.py</code> 显式注册</td><td>可审计，但新增格式必须手动加入并补测试</td></tr>
             <tr><td>QImage / QPixmap 图像操作</td><td><code>img_shim.py</code> + Pillow 后端</td><td>真实能力替换；覆盖转换需要的缩放、编码与封面处理</td></tr>
+            <tr><td><code>magick.draw.thumbnail</code> 历史接口</td><td>standalone 模式转发到 Pillow thumbnail</td><td>兼容 Talebook 现有调用；完整 Calibre 模式仍走原 Qt 实现</td></tr>
             <tr><td>QtWebEngine PDF 输出</td><td>Calibre → OEB → WeasyPrint</td><td>真实能力替换；排版结果不保证与上游逐像素一致</td></tr>
             <tr><td>PDF 输入默认引擎</td><td>Poppler <code>pdftohtml</code></td><td>外部辅助程序替换；同时携带 pdfinfo / pdftoppm / pdftotext</td></tr>
             <tr><td><code>calibre.gui2.must_use_qt</code></td><td>只含一个函数的 gui2 桩</td><td>接口兼容；不能据此调用任何 GUI 功能</td></tr>
@@ -706,7 +707,7 @@ PIP_BREAK_SYSTEM_PACKAGES=1</code></pre>
         <li><strong>构建产物检查：</strong>拒绝 Qt 命名文件、被禁止的 Calibre 目录、Pillow 的 <code>ImageQt.py</code>、断裂符号链接和非 root 所有者。</li>
         <li><strong>动态依赖检查：</strong>扫描所有原生扩展与可执行文件的 <code>ldd</code> 结果，拒绝缺失依赖、<code>Qt*</code> 与 <code>libQt*</code> soname。</li>
         <li><strong>运行时隔离检查：</strong>系统 Python 的 <code>import PyQt6</code> 必须失败；standalone 入口内部另有 import guard；最终镜像不得安装 gcc 与开发工具链。</li>
-        <li><strong>功能 smoke：</strong>验证三个公共命令、书库创建与列表、EPUB→MOBI/AZW3/PDF、直接 Weasy PDF、CJK 与 emoji 文本、PDF 中文回读。</li>
+        <li><strong>功能 smoke：</strong>验证三个公共命令、书库创建与列表、PNG/JPEG/GIF 图片矩阵、公共缩略图接口、数据库封面写入/读取、EPUB→MOBI/AZW3/PDF、直接 Weasy PDF、CJK 与 emoji 文本、PDF 中文回读。</li>
         <li><strong>体积门禁：</strong><code>/usr</code> 不得超过 400 MiB，CI 同时打印各架构的 Docker image size 便于追踪。</li>
       </ol>
 
@@ -714,7 +715,7 @@ PIP_BREAK_SYSTEM_PACKAGES=1</code></pre>
 
       <div class="callout">
         <span class="callout-label">当前验证口径</span>
-        <p>优化后的系统 Python 方案已在本地 arm64 Docker 镜像完整通过上述 smoke，QuickJS 可由上层 <code>pip install -r</code> 直接复用，且 Fontconfig/CJK PDF 回读正常。当前镜像约 340 MiB、<code>/usr</code> 为 346 MiB；CI 工作流继续负责独立验证 amd64 与 arm64。</p>
+        <p>优化后的系统 Python 方案已在本地 arm64 Docker 镜像完整通过上述 smoke，QuickJS 可由上层 <code>pip install -r</code> 直接复用，且 Fontconfig/CJK PDF 回读正常。Talebook 的 HTTP 缩略图定向测试已通过，完整 <code>make test</code> 结果为 575 passed、1 skipped。当前镜像约 340 MiB、<code>/usr</code> 为 346 MiB；CI 工作流继续负责独立验证 amd64 与 arm64。</p>
       </div>
     </section>
 
