@@ -32,7 +32,7 @@ on:
         description: Push the tested multi-platform image to Docker Hub
         required: true
         type: boolean
-        default: false
+        default: true
       version:
         description: Image version tag
         required: true
