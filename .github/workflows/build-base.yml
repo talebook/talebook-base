@@ -16,6 +16,8 @@ on:
     branches:
       - master
       - slim-v8.5.0
+    tags:
+      - '*'
     paths:
       - .dockerignore
       - .github/workflows/build-base.yml
@@ -113,7 +115,9 @@ jobs:
 
   publish:
     name: Publish multi-platform image
-    if: github.event_name == 'workflow_dispatch' && inputs.push_image
+    if: >-
+      startsWith(github.ref, 'refs/tags/') ||
+      (github.event_name == 'workflow_dispatch' && inputs.push_image)
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -140,12 +144,12 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          platforms: ${{ inputs.platforms }}
+          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64,linux/arm/v7' }}
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:${{ inputs.version }}
+            ${{ env.IMAGE_NAME }}:${{ inputs.version || github.ref_name }}
             ${{ env.IMAGE_NAME }}:latest
           build-args: |
-            BUILD_COUNTRY=${{ inputs.build_country }}
+            BUILD_COUNTRY=${{ inputs.build_country || '' }}
           cache-from: type=gha,scope=talebook-base-publish
           cache-to: type=gha,mode=max,scope=talebook-base-publish
