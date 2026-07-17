@@ -21,6 +21,12 @@ fi
 
 command -v ebook-convert
 command -v calibredb
+command -v make
+make --version
+if command -v git >/dev/null 2>&1; then
+    echo "git must not be installed in the final image" >&2
+    exit 1
+fi
 if command -v ebook-convert-pdf >/dev/null 2>&1; then
     echo "temporary ebook-convert-pdf command must not be exposed" >&2
     exit 1
@@ -31,6 +37,11 @@ python3 -m pip install --dry-run --no-index quickjs setuptools
 is_installed() {
     dpkg-query -W -f='${Status}\n' "$1" 2>/dev/null | grep -qx 'install ok installed'
 }
+
+if ! is_installed make; then
+    echo "make must be installed in the final image" >&2
+    exit 1
+fi
 
 if is_installed calibre; then
     echo "Debian calibre package must not be installed in the final image" >&2
