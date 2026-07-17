@@ -119,6 +119,7 @@
         <tr><td><code>make --version</code> / dpkg / <code>command -v git</code></td><td>GNU Make 4.4.1 位于 <code>/usr/bin/make</code>，dpkg 状态为 installed；Git 缺失。</td></tr>
         <tr><td>禁止项与功能回归</td><td>gcc/build-essential/Qt/PyQt 继续缺失；Calibre 命令、数据库、MOBI/AZW3/PDF、CJK PDF 与 QuickJS 全部通过。</td></tr>
         <tr><td><code>du -smx /usr</code> / Docker image inspect</td><td><code>/usr</code> 为 346 MiB，低于 400 MiB；arm64 镜像为 357,702,780 bytes。</td></tr>
+        <tr><td>GitHub Actions · Talebook base image</td><td>amd64、arm64 与 arm/v7 三个架构的 build + image smoke 全部通过；发布 job 按 PR 事件保持跳过。</td></tr>
         <tr><td><code>sh -n packaging/smoke-test.sh</code> / <code>git diff --check</code></td><td>通过，无 shell 语法、空白或补丁格式问题。</td></tr>
       </tbody>
     </table>
