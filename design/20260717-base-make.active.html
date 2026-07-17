@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Talebook Base 补充 Make 兼容工具</title>
+  <style>
+    :root { color-scheme:light; --paper:#f6f5f0; --ink:#20221f; --muted:#62665f; --line:#d8d7cf; --accent:#245c4f; --accent-bg:#e6f0ec; --warn:#875f1d; --warn-bg:#f5ecd8; --code:#eceae3; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:46px 20px 76px; background:var(--paper); color:var(--ink); font:16px/1.65 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+    main { max-width:940px; margin:auto; }
+    header { padding-bottom:26px; border-bottom:1px solid var(--line); }
+    h1 { margin:.3rem 0 .7rem; font-size:2.05rem; line-height:1.2; }
+    h2 { margin-top:2.6rem; padding-bottom:.4rem; border-bottom:1px solid var(--line); font-size:1.3rem; }
+    p, li { max-width:80ch; }
+    .eyebrow, .meta, th, code, .status { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .eyebrow { color:var(--accent); font-size:.78rem; letter-spacing:.12em; }
+    .meta { display:flex; flex-wrap:wrap; gap:12px 24px; color:var(--muted); font-size:.82rem; }
+    .status { display:inline-block; padding:2px 9px; color:var(--accent); background:var(--accent-bg); border:1px solid #9bc1b5; border-radius:999px; }
+    .summary { margin:28px 0; padding:18px 22px; background:var(--accent-bg); border-left:4px solid var(--accent); }
+    code { padding:1px 5px; background:var(--code); border-radius:3px; font-size:.9em; }
+    table { width:100%; border-collapse:collapse; margin:18px 0; font-size:.94rem; }
+    th, td { padding:11px 12px; text-align:left; vertical-align:top; border-bottom:1px solid var(--line); }
+    th { color:var(--muted); font-size:.82rem; }
+    figure { margin:24px 0; border:1px solid var(--line); background:#fff; overflow:auto; }
+    svg { display:block; width:100%; min-width:700px; height:auto; }
+    figcaption { padding:10px 14px; color:var(--muted); background:#efeee9; font-size:.82rem; }
+    .pending { padding:15px 18px; background:var(--warn-bg); border:1px solid #dfc99f; }
+    footer { margin-top:50px; padding-top:18px; border-top:1px solid var(--line); color:var(--muted); font-size:.85rem; }
+    @media (max-width:700px) { body { padding:28px 14px 54px; } h1 { font-size:1.65rem; } th, td { padding:8px 6px; font-size:.82rem; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">TALEBOOK BASE · COMPATIBILITY</div>
+    <h1>Base 镜像补充 Make</h1>
+    <div class="meta">
+      <span>创建日期：2026-07-17</span>
+      <span>所属模块：base image</span>
+      <span>状态：<b class="status">ACTIVE</b></span>
+      <span>基线：slim-v8.5.0</span>
+      <span>需求来源：Talebook PR #873 CI 兼容性</span>
+    </div>
+  </header>
+
+  <div class="summary">
+    在精简 base 镜像的最终 <code>base</code> 阶段安装 <code>make</code>，恢复 Talebook CI 执行 Makefile 的能力；Git 经复核不是后端测试依赖，由 Talebook workflow 删除冗余 <code>safe.directory</code> 步骤。不引入 Git、编译器、Qt 或测试框架，不放宽既有 <code>/usr ≤ 400 MiB</code> 门禁。本轮只提交 PR，不发布或覆盖 Docker 标签。
+  </div>
+
+  <section>
+    <h2>原始诉求与确认边界</h2>
+    <p>Talebook 的 <code>test-server</code> 继续直接使用 <code>talebook/talebook-base:latest</code> 作为 job container，以复用 Calibre 运行环境并避免二次构建测试 target。当前 slim 镜像缺少 <code>git</code> 和 <code>make</code>。复核 CI 日志、workflow 历史、actions/checkout 默认行为及 Makefile 后确认：checkout 在无 Git 时已通过 REST API 下载源码；显式 <code>git config safe.directory</code> 与 checkout 默认行为重复；后端测试目标只真正依赖 <code>make</code>。用户确认采用最小兼容方案。</p>
+    <table>
+      <thead><tr><th>决策</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr><td>目标分支</td><td>基于仓库规定的 <code>slim-v8.5.0</code>，不合并或 rebase master。</td></tr>
+        <tr><td>最终镜像工具</td><td>只新增 Debian <code>make</code>，使用 <code>--no-install-recommends</code>；不安装 Git。</td></tr>
+        <tr><td>禁止项</td><td>继续禁止 gcc、build-essential、Python headers、Qt/PyQt 和 pytest 等测试框架进入最终镜像。</td></tr>
+        <tr><td>体积预算</td><td>保持 <code>/usr ≤ 400 MiB</code>；若新增包导致超限，方案保持 WIP，不通过提高门禁规避。</td></tr>
+        <tr><td>跨仓库配套</td><td>Talebook workflow 删除显式 <code>Configure Git safe directory</code>；保留 base job container 与既有 Makefile 测试命令。</td></tr>
+        <tr><td>交付边界</td><td>本轮完成代码、验证、提交和两个仓库 PR；不发布镜像、不移动现有标签。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>实现方案</h2>
+    <figure>
+      <svg viewBox="0 0 900 330" role="img" xmlns="http://www.w3.org/2000/svg">
+        <title>Make 进入最终 base 阶段</title>
+        <desc>runtime-system 保持不变，最终 base 只安装 make，构建阶段工具链仍隔离，Talebook CI 使用 checkout REST fallback 和 Makefile。</desc>
+        <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#68716c"/></marker></defs>
+        <rect width="900" height="330" fill="#fff"/>
+        <g font-family="system-ui, PingFang SC, sans-serif" font-size="15" text-anchor="middle">
+          <rect x="35" y="110" width="205" height="110" rx="10" fill="#eef1f4" stroke="#778594"/>
+          <text x="137" y="148" fill="#34485a" font-weight="700">runtime-system</text><text x="137" y="178" fill="#48524e">既有运行依赖</text><text x="137" y="203" fill="#48524e">保持不变</text>
+          <rect x="350" y="110" width="205" height="110" rx="10" fill="#e7f0ec" stroke="#568577"/>
+          <text x="452" y="148" fill="#245c4f" font-weight="700">base</text><text x="452" y="178" fill="#48524e">Calibre + make</text><text x="452" y="203" fill="#48524e">无 git / gcc / Qt / pytest</text>
+          <rect x="680" y="35" width="185" height="100" rx="10" fill="#edf4ee" stroke="#63876a"/>
+          <text x="772" y="73" fill="#365f3d" font-weight="700">Talebook 构建</text><text x="772" y="103" fill="#48524e">兼容既有命令</text>
+          <rect x="680" y="195" width="185" height="100" rx="10" fill="#f5ecd8" stroke="#a77c32"/>
+          <text x="772" y="233" fill="#875f1d" font-weight="700">CI test-server</text><text x="772" y="263" fill="#48524e">REST checkout + make</text>
+        </g>
+        <g fill="none" stroke="#68716c" stroke-width="2" marker-end="url(#arrow)"><path d="M240 165 H345"/><path d="M555 145 C610 145 620 85 675 85"/><path d="M555 185 C610 185 620 245 675 245"/></g>
+      </svg>
+      <figcaption>只把实际需要的 Makefile 执行器加入最终 base；Git 与编译工具链均不随镜像发布。</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>文件</th><th>计划改动</th></tr></thead>
+      <tbody>
+        <tr><td><code>Dockerfile</code></td><td>在最终 <code>base</code> 阶段单独安装 <code>make</code> 并清理 apt 数据，避免使 runtime-build 与 QuickJS wheel builder 继承兼容工具。</td></tr>
+        <tr><td><code>packaging/smoke-test.sh</code></td><td>断言 make 存在、可输出版本且 dpkg 状态正常；新增 Git 缺失断言，并继续验证 gcc/build-essential 等禁止项。</td></tr>
+        <tr><td><code>design/20260717-base-make.*.html</code></td><td>记录依赖复核、体积影响、真实构建和 smoke 结果。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>风险、发布与回滚</h2>
+    <ul>
+      <li><strong>体积风险：</strong>完整 Git 实测会把 <code>/usr</code> 从 345 MiB 增至 435 MiB，因此已排除；make 下载约 452 KiB，仍以最终镜像实测为准。</li>
+      <li><strong>安全面：</strong>不加入 Git 的协议解析和 Perl 运行时；make 采用 Debian 安全仓库版本且禁止 Recommends。</li>
+      <li><strong>兼容性：</strong>保留现有 Calibre 8.5.0、QuickJS、数据库、转换、CJK PDF、无 Qt 与无编译器约束。</li>
+      <li><strong>发布：</strong>本 PR 不触发镜像发布。合并后另行决定何时更新 <code>slim-v8.5.0</code> 与 <code>latest</code>。</li>
+      <li><strong>回滚：</strong>删除最终 base 阶段的 make 安装层并重建即可；没有数据或 API 迁移。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>测试结果</h2>
+    <div class="pending"><strong>验证完成：</strong>最小 make-only 方案通过完整构建、镜像 smoke、功能与体积门禁；未发布或覆盖远端镜像标签。</div>
+    <table>
+      <thead><tr><th>实际命令或检查</th><th>结果</th></tr></thead>
+      <tbody>
+        <tr><td>旧 slim 镜像执行新版 smoke</td><td>按预期在 <code>command -v make</code> 处退出 127，证明回归断言能捕获缺失依赖。</td></tr>
+        <tr><td><code>python3 setup/standalone_ebook_convert_smoke.py --self-test</code></td><td>通过。</td></tr>
+        <tr><td><code>BUILD_COUNTRY=CN make test</code></td><td>通过；完成镜像构建与完整 image smoke。</td></tr>
+        <tr><td><code>make --version</code> / dpkg / <code>command -v git</code></td><td>GNU Make 4.4.1 位于 <code>/usr/bin/make</code>，dpkg 状态为 installed；Git 缺失。</td></tr>
+        <tr><td>禁止项与功能回归</td><td>gcc/build-essential/Qt/PyQt 继续缺失；Calibre 命令、数据库、MOBI/AZW3/PDF、CJK PDF 与 QuickJS 全部通过。</td></tr>
+        <tr><td><code>du -smx /usr</code> / Docker image inspect</td><td><code>/usr</code> 为 346 MiB，低于 400 MiB；arm64 镜像为 357,702,780 bytes。</td></tr>
+        <tr><td><code>sh -n packaging/smoke-test.sh</code> / <code>git diff --check</code></td><td>通过，无 shell 语法、空白或补丁格式问题。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>本方案是 <code>design/20260716-talebook-base-noqt-runtime.active.html</code> 的最小兼容性补充，不改变 Calibre runtime 架构与公开转换能力。</footer>
+</main>
+</body>
+</html>

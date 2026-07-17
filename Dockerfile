@@ -152,6 +152,13 @@ FROM runtime-system AS base
 ARG TARGETARCH
 ARG TARGETVARIANT
 
+# Talebook 的 CI 直接在 base 容器中执行 Makefile；只补充 make，Git 由
+# actions/checkout 的 REST fallback 规避，避免引入完整 Git/Perl runtime。
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends make && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY --from=runtime-build /opt/talebook-system-root/ /
 COPY --chmod=0755 packaging/entrypoints/ebook-convert packaging/entrypoints/calibredb /usr/bin/
 COPY --chmod=0644 packaging/entrypoints/*.py /usr/lib/calibre/
